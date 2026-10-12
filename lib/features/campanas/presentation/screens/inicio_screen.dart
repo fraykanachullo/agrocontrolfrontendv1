@@ -509,11 +509,9 @@ class _StageProgress extends StatelessWidget {
                   child: Container(
                     height: 7,
                     decoration: BoxDecoration(
-                      color: s.index <= current ? AppColors.accent : AppColors.surfaceContainerHighest,
+                      gradient: s.index <= current ? AppColors.progressGradient : null,
+                      color: s.index <= current ? null : AppColors.surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(999),
-                      boxShadow: s.index <= current && AppColors.palette.isDark
-                          ? [BoxShadow(color: AppColors.palette.ctaGlow, blurRadius: 8)]
-                          : null,
                     ),
                   ),
                 ),

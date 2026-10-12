@@ -104,12 +104,12 @@ class CampaignTile extends StatelessWidget {
                             ? '—'
                             : conVentas
                                 ? '${r.utilidad < 0 ? '-' : '+'}${formatSoles(r.utilidad.abs())}'
-                                : '-${formatSoles(r.gastos)}',
+                                : '${r.gastos > 0 ? '-' : ''}${formatSoles(r.gastos)}',
                         style: AppTheme.display(
                           fontSize: 22,
                           color: conVentas
                               ? (r!.utilidad < 0 ? AppColors.expense : AppColors.positive)
-                              : AppColors.expense,
+                              : ((r?.gastos ?? 0) > 0 ? AppColors.expense : AppColors.textMuted),
                         ),
                       ),
                       if ((r?.porLiquidar ?? 0) > 0)

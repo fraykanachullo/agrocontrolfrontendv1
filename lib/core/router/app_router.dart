@@ -1,7 +1,6 @@
 import 'package:go_router/go_router.dart';
 import '../../features/splash/presentation/screens/splash_screen.dart';
-import '../../features/auth/presentation/screens/login_screen.dart';
-import '../../features/auth/presentation/screens/register_screen.dart';
+import '../../features/auth/presentation/screens/auth_screen.dart';
 import '../../features/auth/presentation/screens/forgot_password_screen.dart';
 import '../../features/campanas/presentation/screens/campaign_selector_screen.dart';
 import '../../features/campanas/presentation/screens/campaign_shell_screen.dart';
@@ -22,11 +21,11 @@ final router = GoRouter(
     ),
     GoRoute(
       path: '/login',
-      builder: (context, state) => const LoginScreen(),
+      builder: (context, state) => const AuthScreen(),
     ),
     GoRoute(
       path: '/register',
-      builder: (context, state) => const RegisterScreen(),
+      builder: (context, state) => const AuthScreen(startOnRegister: true),
     ),
     GoRoute(
       path: '/forgot-password',
