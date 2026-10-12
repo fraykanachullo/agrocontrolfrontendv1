@@ -1,11 +1,23 @@
 import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../features/campanas/domain/entities/campana.dart';
 
 class CampaignDetailsCard extends StatelessWidget {
-  const CampaignDetailsCard({super.key});
+  final Campana? campana;
+
+  const CampaignDetailsCard({super.key, this.campana});
 
   @override
   Widget build(BuildContext context) {
+    final isActive = campana?.estado == 'activa';
+    final cultivo = campana?.cultivo ?? '---';
+    final extension = campana?.extensionDisplay ?? '---';
+    final lat = campana?.latitud;
+    final lng = campana?.longitud;
+    final ubicacion = (lat != null && lng != null)
+        ? '${lat.toStringAsFixed(3)}, ${lng.toStringAsFixed(3)}'
+        : 'Sin ubicación';
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -23,7 +35,6 @@ class CampaignDetailsCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -31,19 +42,17 @@ class CampaignDetailsCard extends StatelessWidget {
                 'Campaña Actual',
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
-              _buildStatusBadge(context),
+              _buildStatusBadge(context, isActive),
             ],
           ),
           const SizedBox(height: 20),
-
-          // Campaign details
           _buildDetailRow(
             context,
             icon: Icons.eco,
             iconBg: AppColors.primaryContainer,
             iconColor: AppColors.onPrimaryContainer,
             label: 'Cultivo',
-            value: 'Tomate',
+            value: cultivo[0].toUpperCase() + cultivo.substring(1),
           ),
           const SizedBox(height: 16),
           _buildDetailRow(
@@ -52,7 +61,7 @@ class CampaignDetailsCard extends StatelessWidget {
             iconBg: AppColors.surfaceContainerHigh,
             iconColor: AppColors.onSurfaceVariant,
             label: 'Área Plantada',
-            value: '3.5 hectáreas',
+            value: extension,
           ),
           const SizedBox(height: 16),
           _buildDetailRow(
@@ -61,7 +70,7 @@ class CampaignDetailsCard extends StatelessWidget {
             iconBg: AppColors.surfaceContainerHigh,
             iconColor: AppColors.onSurfaceVariant,
             label: 'Ubicación',
-            value: '-14.067, -75.733',
+            value: ubicacion,
             isMono: true,
           ),
         ],
@@ -69,11 +78,12 @@ class CampaignDetailsCard extends StatelessWidget {
     );
   }
 
-  Widget _buildStatusBadge(BuildContext context) {
+  Widget _buildStatusBadge(BuildContext context, bool isActive) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: AppColors.statusActive.withValues(alpha: 0.1),
+        color: (isActive ? AppColors.statusActive : AppColors.statusClosed)
+            .withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
@@ -82,16 +92,16 @@ class CampaignDetailsCard extends StatelessWidget {
           Container(
             width: 6,
             height: 6,
-            decoration: const BoxDecoration(
-              color: AppColors.statusActive,
+            decoration: BoxDecoration(
+              color: isActive ? AppColors.statusActive : AppColors.statusClosed,
               shape: BoxShape.circle,
             ),
           ),
           const SizedBox(width: 6),
           Text(
-            'Activa',
+            isActive ? 'Activa' : 'Cerrada',
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: AppColors.statusActive,
+                  color: isActive ? AppColors.statusActive : AppColors.statusClosed,
                 ),
           ),
         ],

@@ -16,3 +16,7 @@
 node_modules/
 .DS_Store
 *.log
+# Salidas de compilación locales y scripts de prueba
+android/build/
+build_*.txt
+test_login.php

@@ -1,16 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/providers/app_providers.dart';
 import '../../../../core/widgets/agro_control_app_bar.dart';
 
-class PerfilScreen extends StatefulWidget {
+class PerfilScreen extends ConsumerStatefulWidget {
   const PerfilScreen({super.key});
 
   @override
-  State<PerfilScreen> createState() => _PerfilScreenState();
+  ConsumerState<PerfilScreen> createState() => _PerfilScreenState();
 }
 
-class _PerfilScreenState extends State<PerfilScreen> {
+class _PerfilScreenState extends ConsumerState<PerfilScreen> {
   bool _darkMode = false;
   String _unidad = 'Hectáreas (ha)';
 
@@ -126,6 +128,13 @@ class _PerfilScreenState extends State<PerfilScreen> {
   }
 
   Widget _buildUserInfoCard(BuildContext context) {
+    final authState = ref.watch(authProvider);
+    final user = authState.user;
+    final name = user?.nombreCompleto ?? 'Usuario';
+    final email = user?.email ?? '';
+    final plan = user?.planSuscripcion ?? 'gratuito';
+    final isPremium = plan == 'premium';
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -148,17 +157,20 @@ class _PerfilScreenState extends State<PerfilScreen> {
             width: 64,
             height: 64,
             decoration: BoxDecoration(
-              color: AppColors.surfaceContainer,
+              color: AppColors.primaryContainer,
               shape: BoxShape.circle,
               border: Border.all(
                 color: AppColors.primaryContainer,
                 width: 2,
               ),
             ),
-            child: const Icon(
-              Icons.person,
-              size: 32,
-              color: AppColors.onSurfaceVariant,
+            alignment: Alignment.center,
+            child: Text(
+              user?.initials ?? 'U',
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    color: AppColors.onPrimaryContainer,
+                    fontWeight: FontWeight.w700,
+                  ),
             ),
           ),
           const SizedBox(width: 16),
@@ -169,7 +181,7 @@ class _PerfilScreenState extends State<PerfilScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Agricultor Test',
+                  name,
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                         fontSize: 20,
                       ),
@@ -177,7 +189,7 @@ class _PerfilScreenState extends State<PerfilScreen> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'agricultor@test.com',
+                  email,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: AppColors.onSurfaceVariant,
                       ),
@@ -188,20 +200,29 @@ class _PerfilScreenState extends State<PerfilScreen> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
-                    color: AppColors.secondaryContainer,
+                    color: isPremium
+                        ? AppColors.secondaryContainer
+                        : AppColors.surfaceContainerHigh,
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.star,
-                          size: 14, color: AppColors.onSecondaryContainer),
+                      Icon(
+                        isPremium ? Icons.star : Icons.star_border,
+                        size: 14,
+                        color: isPremium
+                            ? AppColors.onSecondaryContainer
+                            : AppColors.onSurfaceVariant,
+                      ),
                       const SizedBox(width: 4),
                       Text(
-                        'Plan: Premium',
+                        'Plan: ${isPremium ? "Premium" : "Gratuito"}',
                         style:
                             Theme.of(context).textTheme.labelMedium?.copyWith(
-                                  color: AppColors.onSecondaryContainer,
+                                  color: isPremium
+                                      ? AppColors.onSecondaryContainer
+                                      : AppColors.onSurfaceVariant,
                                 ),
                       ),
                     ],
@@ -260,7 +281,10 @@ class _PerfilScreenState extends State<PerfilScreen> {
     return SizedBox(
       width: double.infinity,
       child: OutlinedButton.icon(
-        onPressed: () => context.go('/login'),
+        onPressed: () async {
+          await ref.read(authProvider.notifier).logout();
+          if (context.mounted) context.go('/login');
+        },
         icon: const Icon(Icons.logout, color: AppColors.error),
         label: Text(
           'Cerrar Sesión',

@@ -1,38 +1,36 @@
 import 'package:flutter/material.dart';
-import '../../../../core/theme/app_colors.dart';
-import '../../../../core/widgets/agro_control_app_bar.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../../core/providers/app_providers.dart';
 import '../widgets/kpi_summary_card.dart';
 import '../widgets/campaign_details_card.dart';
+import '../widgets/balance_widget.dart';
 import '../widgets/quick_actions.dart';
-import '../../../campanas/presentation/widgets/bottom_nav_bar.dart';
 
-class DashboardScreen extends StatelessWidget {
-  const DashboardScreen({super.key});
+class DashboardScreen extends ConsumerWidget {
+  final String campaignId;
+
+  const DashboardScreen({super.key, required this.campaignId});
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: const AgroControlAppBar(),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // KPI Summary Card
-            const KpiSummaryCard(),
-            const SizedBox(height: 12),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final dashboardData = ref.watch(dashboardDataProvider);
+    final campana = ref.watch(activeCampanaProvider);
+    final campanaId = int.tryParse(campaignId) ?? 0;
 
-            // Campaign Details Card
-            const CampaignDetailsCard(),
-            const SizedBox(height: 12),
-
-            // Quick Actions
-            const QuickActions(),
-          ],
-        ),
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          KpiSummaryCard(data: dashboardData.value),
+          const SizedBox(height: 12),
+          CampaignDetailsCard(campana: campana),
+          const SizedBox(height: 12),
+          BalanceWidget(campanaId: campanaId),
+          const SizedBox(height: 12),
+          const QuickActions(),
+        ],
       ),
-      bottomNavigationBar: const BottomNavBar(selectedIndex: 0),
     );
   }
 }
