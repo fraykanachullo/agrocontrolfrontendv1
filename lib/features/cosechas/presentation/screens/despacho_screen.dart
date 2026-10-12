@@ -1,9 +1,11 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/providers/app_providers.dart';
+import '../../../../core/providers/despacho_aviso_provider.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/form_pieces.dart';
@@ -21,6 +23,72 @@ class DespachoScreen extends ConsumerWidget {
 
   const DespachoScreen({super.key, required this.cosecha});
 
+  /// Marca un paso del ciclo con la hora actual, con opción de deshacer.
+  Future<void> _marcar(BuildContext context, WidgetRef ref, Cosecha c, EtapaDespacho paso, String hecho) async {
+    final notifier = ref.read(cosechasProvider.notifier);
+    final messenger = ScaffoldMessenger.of(context);
+    await notifier.marcarPaso(c.campanaId, c.id!, paso, DateTime.now());
+    ref.read(dashboardRefreshTrigger.notifier).update((s) => s + 1);
+    HapticFeedback.mediumImpact();
+    messenger.showSnackBar(SnackBar(
+      content: Text(hecho),
+      action: SnackBarAction(
+        label: 'Deshacer',
+        onPressed: () async {
+          await notifier.marcarPaso(c.campanaId, c.id!, paso, null);
+          ref.read(dashboardRefreshTrigger.notifier).update((s) => s + 1);
+        },
+      ),
+    ));
+  }
+
+  /// Botones del siguiente paso: el logístico (salida, llegada) arriba y la
+  /// liquidación o el cobro como acción principal.
+  Widget? _acciones(BuildContext context, WidgetRef ref, Cosecha c) {
+    final etapa = c.etapa;
+    if (etapa == EtapaDespacho.cobrado) return null;
+
+    final siguiente = switch (etapa) {
+      EtapaDespacho.anotado => AgroActionButton(
+          label: 'Salió el camión',
+          icon: Icons.local_shipping_rounded,
+          onPressed: () => _marcar(context, ref, c, EtapaDespacho.enTransito, 'Despacho en camino'),
+        ),
+      EtapaDespacho.enTransito => AgroActionButton(
+          label: 'Llegó al mercado',
+          icon: Icons.storefront_rounded,
+          onPressed: () => _marcar(context, ref, c, EtapaDespacho.recibido, 'Carga recibida en el mercado'),
+        ),
+      _ => null,
+    };
+    final principal = etapa == EtapaDespacho.liquidado
+        ? AgroActionButton(
+            label: 'Ya cobré ${formatSoles(c.montoNetoFinal ?? 0)}',
+            icon: Icons.payments_rounded,
+            primary: true,
+            height: 56,
+            onPressed: () => _marcar(context, ref, c, EtapaDespacho.cobrado, 'Despacho cobrado'),
+          )
+        : AgroActionButton(
+            label: 'Registrar liquidación',
+            icon: Icons.rate_review_rounded,
+            primary: true,
+            height: 56,
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => LiquidacionScreen(cosecha: c))),
+          );
+
+    return SafeArea(
+      minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (siguiente != null) ...[siguiente, const SizedBox(height: 8)],
+          principal,
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     // Versión vigente del despacho (cambia al liquidarlo).
@@ -28,7 +96,7 @@ class DespachoScreen extends ConsumerWidget {
     final c = [...cosechas.pendientes, ...cosechas.entregadas].where((x) => x.id == cosecha.id).firstOrNull ?? cosecha;
     final hoja = ref.watch(planillasProvider).planillas.where((p) => p.payload['despacho_id'] == c.id).firstOrNull;
     final campana = ref.watch(activeCampanaProvider);
-    final view = _DespachoView(c, hoja, campana?.nombre);
+    final view = _DespachoView(c, hoja, campana?.nombre, ref.watch(diasAvisoDespachoProvider));
     final text = Theme.of(context).textTheme;
 
     return AgroBackground(
@@ -80,20 +148,7 @@ class DespachoScreen extends ConsumerWidget {
             ],
           ],
         ),
-        bottomNavigationBar: view.liquidado
-            ? null
-            : SafeArea(
-                minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                child: AgroActionButton(
-                  label: 'Registrar liquidación',
-                  icon: Icons.rate_review_rounded,
-                  primary: true,
-                  height: 56,
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => LiquidacionScreen(cosecha: c)),
-                  ),
-                ),
-              ),
+        bottomNavigationBar: _acciones(context, ref, c),
       ),
     );
   }
@@ -104,12 +159,13 @@ class _DespachoView {
   final Cosecha c;
   final Planilla? hoja;
   final String? campanaNombre;
+  final int diasAviso;
   final List<CalidadCarga> calidades;
 
-  _DespachoView(this.c, this.hoja, this.campanaNombre) : calidades = calidadesDe(c);
+  _DespachoView(this.c, this.hoja, this.campanaNombre, this.diasAviso) : calidades = calidadesDe(c);
 
-  bool get liquidado => c.estado != 'pendiente' && c.estado != 'pendiente_de_liquidacion';
-  bool get enCampo => c.tipoVenta == 'parcela';
+  bool get liquidado => c.isLiquidado;
+  bool get enCampo => c.enCampo;
   String get envase => c.unidadEmpaque ?? 'java';
   int get anotado => calidades.fold(0, (s, l) => s + l.anotado);
   String get comisionista => (hoja?.payload['comisionista'] as String?) ?? '';
@@ -217,33 +273,62 @@ class _DespachoView {
 
   Widget trazabilidad(BuildContext context) {
     final text = Theme.of(context).textTheme;
-    final envio = DateTime.tryParse(c.fechaEnvio ?? '');
-    final liquidacion = DateTime.tryParse(c.fechaLiquidacion ?? '');
-    final dias = envio == null ? null : DateTime.now().difference(envio).inDays;
-    String fecha(DateTime d) => DateFormat('EEE d MMM · HH:mm', 'es').format(d);
+    String fecha(String? iso) {
+      final d = DateTime.tryParse(iso ?? '');
+      return d == null ? '' : DateFormat('EEE d MMM · HH:mm', 'es').format(d);
+    }
+
     final cobro = nombreFormaCobro(c.liquidacion['forma_cobro'] as String?);
+    final etapa = c.etapa;
+    final dias = c.diasSinNoticias;
+    final demorado = c.demorado(diasAviso);
+    final mercado = c.mercadoDestino.isEmpty ? 'el mercado' : c.mercadoDestino;
+    final neto = formatSoles(c.montoNetoFinal ?? 0);
+
+    // Paso hecho si la etapa ya lo alcanzó; el siguiente es el que se espera.
+    _Estado estado(EtapaDespacho e) => e.index <= etapa.index
+        ? _Estado.hecho
+        : (e.index == etapa.index + 1 ? _Estado.actual : _Estado.pendiente);
 
     final pasos = enCampo
         ? [
-            _Paso('Vendido en campo', envio == null ? '' : fecha(envio), '$anotado ${envase}s', _Estado.hecho),
-            _Paso('Cobrado', liquidacion == null ? '' : fecha(liquidacion), 'Pago recibido en el momento', _Estado.hecho),
+            _Paso('Vendido en campo', fecha(c.fechaEnvio), '$anotado ${envase}s', _Estado.hecho),
+            _Paso('Cobrado', fecha(c.fechaLiquidacion), 'Pago recibido en el momento', _Estado.hecho),
           ]
         : [
-            _Paso('Anotado en campo', envio == null ? '' : fecha(envio), '$anotado ${envase}s cargadas', _Estado.hecho),
+            _Paso('Anotado en campo', fecha(c.fechaEnvio), '$anotado ${envase}s cargadas', _Estado.hecho),
             _Paso(
-              'En camino al mercado',
-              dias == null ? '' : '$dias día${dias == 1 ? '' : 's'}',
-              liquidado ? 'Llegó a ${c.mercadoDestino}' : 'Esperando que el comisionista venda la carga',
-              liquidado ? _Estado.hecho : _Estado.actual,
-              alerta: !liquidado && (dias ?? 0) > 4,
+              'Salió el camión',
+              fecha(c.fechaSalida),
+              estado(EtapaDespacho.enTransito) == _Estado.hecho ? 'Rumbo a $mercado' : 'Márcalo cuando el camión salga',
+              estado(EtapaDespacho.enTransito),
+              alerta: demorado && etapa == EtapaDespacho.anotado,
+            ),
+            _Paso(
+              'Llegó al mercado',
+              fecha(c.fechaRecepcion),
+              switch (estado(EtapaDespacho.recibido)) {
+                _Estado.hecho => 'Recibido en $mercado',
+                _ when demorado => 'Lleva $dias días sin noticias. Llama al comisionista',
+                _ when dias != null && etapa == EtapaDespacho.enTransito => 'Lleva $dias día${dias == 1 ? '' : 's'} en camino',
+                _ => 'Cuando el comisionista confirme que llegó',
+              },
+              estado(EtapaDespacho.recibido),
+              alerta: demorado && etapa == EtapaDespacho.enTransito,
             ),
             _Paso(
               'Liquidado por el comisionista',
-              liquidacion == null ? 'Pendiente' : fecha(liquidacion),
-              liquidado
-                  ? 'Neto: ${formatSoles(c.montoNetoFinal ?? 0)}${c.liquidacion.isEmpty ? '' : ' · $cobro'}'
-                  : 'Registra los precios y descuentos que te envíe',
-              liquidado ? _Estado.hecho : _Estado.pendiente,
+              fecha(c.fechaLiquidacion),
+              liquidado ? 'Neto: $neto${c.liquidacion.isEmpty ? '' : ' · $cobro'}' : 'Registra los precios y descuentos que te envíe',
+              estado(EtapaDespacho.liquidado),
+            ),
+            _Paso(
+              'Cobrado',
+              fecha(c.fechaCobro),
+              etapa == EtapaDespacho.cobrado
+                  ? 'Pago recibido${c.liquidacion.isEmpty ? '' : ' · $cobro'}'
+                  : (liquidado ? 'Esperando el pago de $neto' : 'Cuando recibas el dinero'),
+              estado(EtapaDespacho.cobrado),
             ),
           ];
     final hechos = pasos.where((p) => p.estado == _Estado.hecho).length;
@@ -481,7 +566,7 @@ class _DespachoView {
               if ((d['relleno'] ?? 0) > 0) linea('Relleno / reposición', d['relleno']!, negativo: true),
               if ((d['otros'] ?? 0) > 0) linea('Otros', d['otros']!, negativo: true),
               const Divider(height: 18),
-              linea(enCampo ? 'Total cobrado' : 'Neto recibido', c.montoNetoFinal ?? 0, fuerte: true),
+              linea(enCampo ? 'Total cobrado' : (c.etapa == EtapaDespacho.cobrado ? 'Neto recibido' : 'Neto por cobrar'), c.montoNetoFinal ?? 0, fuerte: true),
               if (c.liquidacion['forma_cobro'] != null)
                 Align(
                   alignment: Alignment.centerRight,
@@ -644,18 +729,23 @@ class _PasoTile extends StatelessWidget {
   }
 }
 
-/// Píldora de estado de un despacho o venta.
-class ShipmentStatusPill extends StatelessWidget {
+/// Píldora de estado de un despacho o venta según su etapa.
+class ShipmentStatusPill extends ConsumerWidget {
   final Cosecha cosecha;
 
   const ShipmentStatusPill({super.key, required this.cosecha});
 
   @override
-  Widget build(BuildContext context) {
-    final pendiente = cosecha.estado == 'pendiente' || cosecha.estado == 'pendiente_de_liquidacion';
-    final (label, icon, color) = pendiente
-        ? ('Por liquidar', Icons.schedule_rounded, AppColors.warning)
-        : (cosecha.tipoVenta == 'parcela' ? 'Cobrado' : 'Liquidado', Icons.task_alt_rounded, AppColors.positive);
+  Widget build(BuildContext context, WidgetRef ref) {
+    final demorado = cosecha.demorado(ref.watch(diasAvisoDespachoProvider));
+    final (label, icon, color) = switch (cosecha.etapa) {
+      _ when demorado => ('Demorado', Icons.warning_amber_rounded, AppColors.error),
+      EtapaDespacho.anotado => ('Anotado', Icons.edit_note_rounded, AppColors.textMuted),
+      EtapaDespacho.enTransito => ('En camino', Icons.local_shipping_rounded, AppColors.info),
+      EtapaDespacho.recibido => ('En el mercado', Icons.storefront_rounded, AppColors.info),
+      EtapaDespacho.liquidado => ('Por cobrar', Icons.schedule_rounded, AppColors.warning),
+      EtapaDespacho.cobrado => ('Cobrado', Icons.task_alt_rounded, AppColors.positive),
+    };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(color: color.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(999)),

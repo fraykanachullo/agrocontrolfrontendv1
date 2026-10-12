@@ -16,9 +16,10 @@ String cropEmoji(String cultivo) {
   return '🌱';
 }
 
-/// Etapa visible de la campaña según su estado y si ya hubo cosechas.
+/// Etapa visible de la campaña según sus hitos: siembra (cuaderno),
+/// primera cosecha y cierre.
 enum CampaignStage {
-  inicio('Inicio', Icons.flag_outlined),
+  inicio('Preparación', Icons.flag_outlined),
   crecimiento('Crecimiento', Icons.eco_outlined),
   cosecha('Cosecha', Icons.agriculture_outlined),
   cierre('Cierre', Icons.task_alt_rounded);
@@ -27,9 +28,9 @@ enum CampaignStage {
   final IconData icon;
   const CampaignStage(this.label, this.icon);
 
-  static CampaignStage of(Campana campana, {required bool hasHarvests, required bool hasRecords}) {
+  static CampaignStage of(Campana campana, {required bool hasHarvests}) {
     if (campana.isClosed) return cierre;
     if (hasHarvests) return cosecha;
-    return hasRecords ? crecimiento : inicio;
+    return campana.isSown ? crecimiento : inicio;
   }
 }

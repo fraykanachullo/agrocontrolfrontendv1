@@ -5,25 +5,31 @@ import '../../domain/entities/campana.dart';
 import '../../domain/repositories/campana_repository.dart';
 import '../../../../core/sync/sync_queue_service.dart';
 
+/// Usuario dueño de los datos locales. Aún fijo: falta tomarlo de la sesión.
+const kLocalUserId = 2;
+
 class CampanaRepositoryImpl implements CampanaRepository {
   final CampanaRemoteDatasource _remote;
   final CampanaLocalDatasource _local;
   final SyncQueueService _syncQueue;
   final int _userId;
 
-  CampanaRepositoryImpl(this._remote, this._local, this._syncQueue, {int userId = 2})
+  CampanaRepositoryImpl(this._remote, this._local, this._syncQueue, {int userId = kLocalUserId})
       : _userId = userId;
-
-  @override
 
   @override
   Future<List<Campana>> listCampanas() async {
     // Try online first, fall back to local
     try {
       final campanas = await _remote.listCampanas();
-      // Cache to local DB
+      // Cache to local DB. El servidor aún no conoce terreno, variedad ni
+      // fecha de siembra: se conservan los valores locales.
       for (final c in campanas) {
+        final local = await _local.getCampana(c.id);
         await _local.insertCampana({
+          'terreno_id': local?.terrenoId,
+          'variedad': local?.variedad,
+          'fecha_siembra': local?.fechaSiembra?.toIso8601String().substring(0, 10),
           'id': c.id,
           'user_id': _userId,
           'nombre': c.nombre,
@@ -40,7 +46,7 @@ class CampanaRepositoryImpl implements CampanaRepository {
           'is_synced': 1,
         });
       }
-      return campanas;
+      return await _local.listCampanas(_userId);
     } catch (_) {
       // Offline: read from local DB
       return await _local.listCampanas(_userId);
@@ -67,6 +73,8 @@ class CampanaRepositoryImpl implements CampanaRepository {
     required DateTime fechaInicio,
     double? latitud,
     double? longitud,
+    int? terrenoId,
+    String? variedad,
   }) async {
     final uuidLocal = SyncQueueService.generateUuid();
     final data = {
@@ -79,6 +87,8 @@ class CampanaRepositoryImpl implements CampanaRepository {
       'longitud': longitud,
       'estado': 'activa',
       'fecha_inicio': fechaInicio.toIso8601String().substring(0, 10),
+      'terreno_id': terrenoId,
+      'variedad': variedad,
       'created_at': DateTime.now().toIso8601String(),
     };
 
@@ -99,7 +109,7 @@ class CampanaRepositoryImpl implements CampanaRepository {
         'id': campana.id,
         'is_synced': 1,
       });
-      return campana;
+      return (await _local.getCampana(campana.id)) ?? campana;
     } catch (_) {
       // Offline: save to local DB + queue for sync
       final id = await _local.insertCampana({
@@ -123,6 +133,8 @@ class CampanaRepositoryImpl implements CampanaRepository {
         longitud: longitud,
         estado: 'activa',
         fechaInicio: fechaInicio,
+        terrenoId: terrenoId,
+        variedad: variedad,
       );
     }
   }
@@ -170,5 +182,12 @@ class CampanaRepositoryImpl implements CampanaRepository {
       if (campana != null) return campana;
       rethrow;
     }
+  }
+
+  @override
+  Future<void> registrarSiembra(int id, DateTime fecha) async {
+    final data = {'fecha_siembra': DateFormat('yyyy-MM-dd').format(fecha)};
+    await _local.updateCampana(id, data);
+    await _syncQueue.enqueue(tabla: 'campanas', operacion: 'update', datos: {'id': id, ...data});
   }
 }

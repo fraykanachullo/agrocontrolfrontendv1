@@ -30,6 +30,8 @@ import '../../features/cosechas/domain/entities/cosecha_clase.dart';
 import '../../features/cosechas/domain/entities/cosecha_detalle.dart';
 import '../../features/planillas/domain/entities/planilla.dart';
 import '../../features/planillas/data/datasources/planilla_local_datasource.dart';
+import '../../features/terrenos/data/terreno_local_datasource.dart';
+import '../../features/terrenos/domain/terreno.dart';
 
 String mapError(dynamic error) {
   if (error is DioException) {
@@ -311,6 +313,8 @@ class CampanaListNotifier extends StateNotifier<CampanaListState> {
     required DateTime fechaInicio,
     double? latitud,
     double? longitud,
+    int? terrenoId,
+    String? variedad,
   }) async {
     try {
       final campana = await _repository.createCampana(
@@ -321,6 +325,8 @@ class CampanaListNotifier extends StateNotifier<CampanaListState> {
         fechaInicio: fechaInicio,
         latitud: latitud,
         longitud: longitud,
+        terrenoId: terrenoId,
+        variedad: variedad,
       );
       state = CampanaListState.loaded([...state.campanas, campana]);
       return campana;
@@ -329,12 +335,31 @@ class CampanaListNotifier extends StateNotifier<CampanaListState> {
       return null;
     }
   }
+
+  /// Marca la siembra de la campaña (la primera labor de siembra del cuaderno).
+  Future<void> registrarSiembra(int campanaId, DateTime fecha) async {
+    await _repository.registrarSiembra(campanaId, fecha);
+    final actualizada = await _repository.getCampana(campanaId);
+    state = CampanaListState.loaded([
+      for (final c in state.campanas) c.id == campanaId ? actualizada : c,
+    ]);
+  }
 }
 
 final campanaListProvider =
     StateNotifierProvider<CampanaListNotifier, CampanaListState>((ref) {
       return CampanaListNotifier(ref.watch(campanaRepositoryProvider));
     });
+
+// ── Terrenos ──
+
+final terrenoLocalDatasourceProvider = Provider<TerrenoLocalDatasource>((ref) => TerrenoLocalDatasource());
+
+/// Terrenos del usuario (mismo usuario local que las campañas).
+final terrenosProvider = FutureProvider<List<Terreno>>((ref) {
+  ref.watch(campanaListProvider);
+  return ref.watch(terrenoLocalDatasourceProvider).listTerrenos(kLocalUserId);
+});
 
 /// ID de la campaña activa seleccionada por el usuario
 final activeCampanaIdProvider = StateProvider<int?>((ref) => null);
@@ -598,6 +623,9 @@ class CosechasNotifier extends StateNotifier<CosechasState> {
               montoNetoFinal: cosecha.montoNetoFinal,
               fechaEnvio: cosecha.fechaEnvio,
               fechaLiquidacion: cosecha.fechaLiquidacion,
+              fechaSalida: cosecha.fechaSalida,
+              fechaRecepcion: cosecha.fechaRecepcion,
+              fechaCobro: cosecha.fechaCobro,
               liquidacion: cosecha.liquidacion,
               createdAt: cosecha.createdAt,
               isSynced: cosecha.isSynced,
@@ -724,6 +752,8 @@ class CosechasNotifier extends StateNotifier<CosechasState> {
     Map<String, int> vendidos = const {},
     /// Detalle de la liquidación que se guarda tal cual (descuentos, forma de cobro, comprobante).
     Map<String, dynamic>? detalle,
+    /// Si el dinero ya se recibió; si no, el despacho queda "por cobrar".
+    bool cobrado = true,
   }) async {
     final maps = await _localDatasource.listCosechas(campanaId);
     final cosechaMap = maps.firstWhere(
@@ -784,8 +814,14 @@ class CosechasNotifier extends StateNotifier<CosechasState> {
     }
 
     final montoNeto = totalBruto - descuentosLogistica;
+    final ahora = DateTime.now().toIso8601String();
+    final esDespacho = cosechaMap['tipo_venta'] != 'parcela';
 
     await _localDatasource.updateCosecha(cosechaId, {
+      // Si llegó la liquidación, la carga salió y llegó al mercado.
+      if (esDespacho && cosechaMap['fecha_salida'] == null) 'fecha_salida': cosechaMap['fecha_envio'] ?? ahora,
+      if (esDespacho && cosechaMap['fecha_recepcion'] == null) 'fecha_recepcion': ahora,
+      'fecha_cobro': cobrado ? ahora : null,
       'estado': 'entregado',
       'precio_unitario': precioUnitarioGlobal,
       'descuentos_logistica': descuentosLogistica,
@@ -806,6 +842,20 @@ class CosechasNotifier extends StateNotifier<CosechasState> {
         'detalles': liquidacionSync,
       },
     );
+    await loadData(campanaId);
+  }
+
+  /// Marca (o desmarca, con `fecha: null`) un paso logístico del despacho:
+  /// salida del camión, llegada al mercado o cobro.
+  // Aún solo local: el servidor no tiene estas fechas (pendiente de sync).
+  Future<void> marcarPaso(int campanaId, int cosechaId, EtapaDespacho paso, DateTime? fecha) async {
+    final columna = switch (paso) {
+      EtapaDespacho.enTransito => 'fecha_salida',
+      EtapaDespacho.recibido => 'fecha_recepcion',
+      EtapaDespacho.cobrado => 'fecha_cobro',
+      _ => throw ArgumentError('El paso ${paso.name} no se marca a mano'),
+    };
+    await _localDatasource.updateCosecha(cosechaId, {columna: fecha?.toIso8601String()});
     await loadData(campanaId);
   }
 }

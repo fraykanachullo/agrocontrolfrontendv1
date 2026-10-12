@@ -51,6 +51,7 @@ class _LiquidacionScreenState extends ConsumerState<LiquidacionScreen> {
   final _rellenoCtrl = TextEditingController();
   final _otrosCtrl = TextEditingController();
   String _formaCobro = formasCobro.first.$1;
+  bool _cobrado = false;
   File? _comprobante;
   bool _saving = false;
 
@@ -122,11 +123,14 @@ class _LiquidacionScreenState extends ConsumerState<LiquidacionScreen> {
           'forma_cobro': _formaCobro,
           'comprobante': ?_comprobante?.path,
         },
+        cobrado: _cobrado,
       );
       ref.read(dashboardRefreshTrigger.notifier).update((s) => s + 1);
       HapticFeedback.mediumImpact();
       navigator.pop(true);
-      messenger.showSnackBar(SnackBar(content: Text('Liquidación guardada: ${formatSoles(_neto)}')));
+      messenger.showSnackBar(SnackBar(
+        content: Text('Liquidación guardada: ${formatSoles(_neto)}${_cobrado ? '' : ' por cobrar'}'),
+      ));
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text('Error: $e')));
       if (mounted) setState(() => _saving = false);
@@ -177,6 +181,22 @@ class _LiquidacionScreenState extends ConsumerState<LiquidacionScreen> {
             const SizedBox(height: 18),
             const SectionHeader(title: '¿Cómo te pagan?'),
             OptionTiles<String>(options: formasCobro, selected: _formaCobro, onSelected: (v) => setState(() => _formaCobro = v)),
+            const SizedBox(height: 18),
+            const SectionHeader(title: '¿Ya recibiste el dinero?'),
+            OptionTiles<bool>(
+              options: const [
+                (false, 'Aún no', Icons.hourglass_top_rounded),
+                (true, 'Sí, ya cobré', Icons.check_circle_rounded),
+              ],
+              selected: _cobrado,
+              onSelected: (v) => setState(() => _cobrado = v),
+              colorOf: (v) => v ? AppColors.positive : AppColors.warning,
+            ),
+            if (!_cobrado)
+              Padding(
+                padding: const EdgeInsets.only(top: 6, left: 4),
+                child: Text('Queda "por cobrar" hasta que marques que llegó el pago.', style: text.bodySmall),
+              ),
           ],
         ),
         bottomNavigationBar: RecordSaveBar(label: 'Guardar liquidación', saving: _saving, onSave: _guardar, total: _neto),
