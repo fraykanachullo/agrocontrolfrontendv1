@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/providers/app_providers.dart';
 import '../../../planillas/presentation/screens/planillas_screen.dart';
-import '../../../planillas/presentation/screens/planilla_editor_screen.dart';
+import '../../../planillas/presentation/planilla_routes.dart';
 import '../../../planillas/presentation/widgets/planilla_template_sheet.dart';
 import '../widgets/pending_shipment_card.dart';
 
@@ -315,15 +315,12 @@ class _CosechasScreenState extends ConsumerState<CosechasScreen> {
     final tipo = await showPlanillaTemplatePicker(context);
     if (tipo == null || !mounted) return;
     final numero = ref.read(planillasProvider).planillas.length + 1;
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => PlanillaEditorScreen(
-          campanaId: campanaId,
-          cultivo: cultivo,
-          tipo: tipo,
-          numeroHoja: numero,
-        ),
-      ),
+    await openPlanilla(
+      context,
+      campanaId: campanaId,
+      cultivo: cultivo,
+      tipo: tipo,
+      numeroHoja: numero,
     );
   }
 
