@@ -63,7 +63,7 @@ class _NuevaCampanaScreenState extends ConsumerState<NuevaCampanaScreen>
       backgroundColor: AppColors.background,
       appBar: const AgroControlAppBar(
         showBackButton: true,
-        title: 'Nueva Campaña',
+        section: 'Nueva campaña',
       ),
       body: FadeTransition(
         opacity: _fadeAnimation,
@@ -475,7 +475,7 @@ class _NuevaCampanaScreenState extends ConsumerState<NuevaCampanaScreen>
                   child: FilledButton.icon(
                     onPressed: _isSubmitting ? null : _submitForm,
                     icon: _isSubmitting
-                        ? const SizedBox(
+                        ? SizedBox(
                             width: 20,
                             height: 20,
                             child: CircularProgressIndicator(

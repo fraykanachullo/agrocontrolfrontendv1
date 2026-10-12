@@ -1,7 +1,11 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_colors.dart';
 
+/// Barra de navegación flotante de vidrio. Todas las pestañas muestran
+/// icono y nombre; la activa se resalta con el color de acento.
 class BottomNavBar extends StatelessWidget {
   final int selectedIndex;
   final String campaignId;
@@ -14,101 +18,102 @@ class BottomNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 8,
-            offset: const Offset(0, -2),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildNavItem(
-                context,
-                index: 0,
-                icon: Icons.home,
-                label: 'Inicio',
-                route: '/c/$campaignId/inicio',
+    final items = [
+      _NavItem(Icons.home_outlined, Icons.home_rounded, 'Inicio', () => context.go('/c/$campaignId/inicio')),
+      _NavItem(Icons.menu_book_outlined, Icons.menu_book, 'Cuaderno', () => context.go('/c/$campaignId/cuaderno')),
+      _NavItem(Icons.local_shipping_outlined, Icons.local_shipping, 'Cosechas', () => context.go('/c/$campaignId/cosechas')),
+      _NavItem(Icons.account_balance_wallet_outlined, Icons.account_balance_wallet, 'Resumen', () => context.go('/c/$campaignId/resumen')),
+      _NavItem(Icons.manage_accounts_outlined, Icons.manage_accounts, 'Perfil', () => context.push('/perfil')),
+    ];
+    final palette = AppColors.palette;
+
+    return SafeArea(
+      minimum: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(999),
+          boxShadow: [
+            BoxShadow(
+              color: palette.highlightShadow,
+              blurRadius: 40,
+              spreadRadius: -8,
+              offset: const Offset(0, 16),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            child: Container(
+              height: 68,
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
+              decoration: BoxDecoration(
+                color: palette.navBackground,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: palette.cardBorder),
               ),
-              _buildNavItem(
-                context,
-                index: 1,
-                icon: Icons.note,
-                label: 'Cuaderno',
-                route: '/c/$campaignId/cuaderno',
+              child: Row(
+                children: [
+                  for (var i = 0; i < items.length; i++)
+                    Expanded(child: _NavButton(item: items[i], selected: i == selectedIndex)),
+                ],
               ),
-              _buildNavItem(
-                context,
-                index: 2,
-                icon: Icons.local_shipping,
-                label: 'Cosechas',
-                route: '/c/$campaignId/cosechas',
-              ),
-              _buildNavItem(
-                context,
-                index: 3,
-                icon: Icons.bar_chart,
-                label: 'Resumen',
-                route: '/c/$campaignId/resumen',
-              ),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
+}
 
-  Widget _buildNavItem(
-    BuildContext context, {
-    required int index,
-    required IconData icon,
-    required String label,
-    required String route,
-  }) {
-    final isSelected = selectedIndex == index;
+class _NavItem {
+  final IconData icon;
+  final IconData activeIcon;
+  final String label;
+  final VoidCallback onTap;
 
-    return Expanded(
-      child: InkWell(
-        onTap: () {
-          if (!isSelected) {
-            context.go(route);
-          }
-        },
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          decoration: isSelected
-              ? BoxDecoration(
-                  color: AppColors.primaryContainer,
-                  borderRadius: BorderRadius.circular(12),
-                )
-              : null,
+  const _NavItem(this.icon, this.activeIcon, this.label, this.onTap);
+}
+
+class _NavButton extends StatelessWidget {
+  final _NavItem item;
+  final bool selected;
+
+  const _NavButton({required this.item, required this.selected});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? AppColors.accent : AppColors.textMuted;
+
+    return Semantics(
+      label: item.label,
+      selected: selected,
+      button: true,
+      child: GestureDetector(
+        onTap: selected ? null : item.onTap,
+        behavior: HitTestBehavior.opaque,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          margin: const EdgeInsets.symmetric(horizontal: 2),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.accent.withValues(alpha: 0.12) : Colors.transparent,
+            borderRadius: BorderRadius.circular(999),
+          ),
           child: Column(
-            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                icon,
-                size: 22,
-                color: isSelected
-                    ? AppColors.onPrimaryContainer
-                    : AppColors.onSurfaceVariant,
-              ),
+              Icon(selected ? item.activeIcon : item.icon, size: 22, color: color),
               const SizedBox(height: 2),
               Text(
-                label,
+                item.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: isSelected
-                          ? AppColors.onPrimaryContainer
-                          : AppColors.onSurfaceVariant,
-                      fontSize: 10,
+                      color: color,
+                      fontSize: 10.5,
+                      fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
                     ),
               ),
             ],

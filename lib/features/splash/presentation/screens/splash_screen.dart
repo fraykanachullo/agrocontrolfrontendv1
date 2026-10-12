@@ -95,7 +95,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                         color: Colors.white.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(28),
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.eco,
                         size: 72,
                         color: AppColors.surfaceContainerLowest,

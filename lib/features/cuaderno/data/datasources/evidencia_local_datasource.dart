@@ -1,6 +1,20 @@
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import '../../../../core/database/app_database.dart';
 
 class EvidenciaLocalDatasource {
+  /// Copia una foto (cámara o galería) a la carpeta de evidencias de la app,
+  /// para que siga disponible hasta que se suba al servidor.
+  Future<File> copyToEvidencias(String originalPath) async {
+    final appDir = await getApplicationDocumentsDirectory();
+    final dir = Directory('${appDir.path}/evidencias');
+    if (!await dir.exists()) await dir.create(recursive: true);
+    final fileName = 'evid_${DateTime.now().millisecondsSinceEpoch}${p.extension(originalPath)}';
+    return File(originalPath).copy('${dir.path}/$fileName');
+  }
+
   Future<int> saveEvidencia({
     required int relacionId,
     required String relacionTipo,

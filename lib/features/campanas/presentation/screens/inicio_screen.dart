@@ -2,9 +2,66 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
-import '../../../../core/theme/app_colors.dart';
 import '../../../../core/providers/app_providers.dart';
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/glass.dart';
+import '../../../cosechas/domain/entities/cosecha.dart';
+import '../../../cuaderno/presentation/widgets/expense_sheet.dart';
+import '../../../cuaderno/presentation/widgets/record_sheets.dart';
+import '../../domain/entities/campana.dart';
+import '../campaign_actions.dart';
 import '../widgets/campaign_card.dart';
+
+// es_419: miles con coma y decimales con punto (S/ 48,320.20), como se usa en Perú.
+final _amount = NumberFormat('#,##0.00', 'es_419');
+final _count = NumberFormat('#,##0', 'es_419');
+
+/// Atajos de registro rápido: las categorías de gasto más frecuentes en campo.
+const _quickExpenses = <(IconData, String, String)>[
+  (Icons.groups_rounded, 'Cuadrilla', 'Mano de obra'),
+  (Icons.pest_control_rounded, 'Fumigación', 'Fitosanitarios'),
+  (Icons.grass_rounded, 'Abonos', 'Fertilizantes'),
+  (Icons.water_drop_rounded, 'Riego', 'Riego'),
+  (Icons.agriculture_rounded, 'Maquinaria', 'Maquinaria'),
+  (Icons.inventory_2_rounded, 'Envases', 'Envases'),
+  (Icons.spa_rounded, 'Semilla', 'Semilla / plantín'),
+  (Icons.more_horiz_rounded, 'Otro', 'Otros'),
+];
+
+String cropEmoji(String cultivo) {
+  final c = cultivo.toLowerCase();
+  if (c.contains('tomate')) return '🍅';
+  if (c.contains('cebolla')) return '🧅';
+  if (c.contains('ajo')) return '🧄';
+  if (c.contains('vainita')) return '🫛';
+  if (c.contains('papa')) return '🥔';
+  if (c.contains('maíz') || c.contains('maiz')) return '🌽';
+  if (c.contains('palto') || c.contains('aguacate')) return '🥑';
+  if (c.contains('uva')) return '🍇';
+  return '🌱';
+}
+
+/// Formatea un monto con signo: "+S/ 1,200.00" / "-S/ 1,200.00".
+String signedAmount(double value) => '${value < 0 ? '-' : '+'}S/ ${_amount.format(value.abs())}';
+
+/// Etapa visible de la campaña según su estado y si ya hubo cosechas.
+enum CampaignStage {
+  inicio('Inicio', Icons.flag_outlined),
+  crecimiento('Crecimiento', Icons.eco_outlined),
+  cosecha('Cosecha', Icons.agriculture_outlined),
+  cierre('Cierre', Icons.task_alt_rounded);
+
+  final String label;
+  final IconData icon;
+  const CampaignStage(this.label, this.icon);
+
+  static CampaignStage of(Campana campana, {required bool hasHarvests, required bool hasRecords}) {
+    if (campana.isClosed) return cierre;
+    if (hasHarvests) return cosecha;
+    return hasRecords ? crecimiento : inicio;
+  }
+}
 
 class InicioScreen extends ConsumerStatefulWidget {
   const InicioScreen({super.key});
@@ -14,8 +71,6 @@ class InicioScreen extends ConsumerStatefulWidget {
 }
 
 class _InicioScreenState extends ConsumerState<InicioScreen> {
-  String _feedFilter = 'todos';
-
   @override
   void initState() {
     super.initState();
@@ -23,668 +78,896 @@ class _InicioScreenState extends ConsumerState<InicioScreen> {
     if (state.campanas.isEmpty && !state.isLoading) {
       Future.microtask(() => ref.read(campanaListProvider.notifier).loadCampanas());
     }
+    final campanaId = ref.read(activeCampanaIdProvider);
+    if (campanaId != null) {
+      Future.microtask(() => ref.read(cosechasProvider.notifier).loadData(campanaId));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    // Cargar cosechas de la campaña activa (etapa, despachos por liquidar).
+    ref.listen(activeCampanaIdProvider, (_, id) {
+      if (id != null) ref.read(cosechasProvider.notifier).loadData(id);
+    });
+
     final campana = ref.watch(activeCampanaProvider);
-    final campanaState = ref.watch(campanaListProvider);
+    if (campana == null) return _NoCampaignView(state: ref.watch(campanaListProvider));
 
-    if (campana == null) {
-      return _buildNoCampaignView(context, campanaState);
-    }
-
-    return _buildDashboard(context, campana, campanaState);
-  }
-
-  // ═══════════════════════════════════════════════
-  //  NO CAMPAIGN VIEW
-  // ═══════════════════════════════════════════════
-
-  Widget _buildNoCampaignView(BuildContext context, CampanaListState state) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Selecciona una campaña', style: Theme.of(context).textTheme.headlineMedium),
-          const SizedBox(height: 8),
-          Text('Elige una campaña para ver su resumen', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppColors.onSurfaceVariant)),
-          const SizedBox(height: 20),
-          SizedBox(
-            width: double.infinity,
-            height: 48,
-            child: ElevatedButton.icon(
-              onPressed: () => context.push('/nueva-campana'),
-              icon: const Icon(Icons.add, size: 20),
-              label: const Text('Nueva Campaña'),
-              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: AppColors.onPrimary, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-            ),
-          ),
-          const SizedBox(height: 20),
-          if (state.isLoading)
-            const Center(child: CircularProgressIndicator())
-          else if (state.campanas.isEmpty)
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.all(40),
-                child: Column(children: [
-                  Icon(Icons.agriculture, size: 64, color: AppColors.outlineVariant),
-                  const SizedBox(height: 16),
-                  Text('No hay campañas', style: Theme.of(context).textTheme.titleMedium?.copyWith(color: AppColors.onSurfaceVariant)),
-                  const SizedBox(height: 8),
-                  Text('Crea tu primera campaña para empezar', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.onSurfaceVariant)),
-                ]),
-              ),
-            )
-          else
-            ...state.campanas.map((c) => Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: CampaignCard(
-                    title: c.nombre,
-                    subtitle: c.cultivo,
-                    startDate: c.fechaInicio != null ? 'Inicio: ${DateFormat('dd MMM yyyy', 'es').format(c.fechaInicio!)}' : 'Sin fecha',
-                    extension: c.extensionDisplay,
-                    isActive: c.isActive,
-                    onTap: () => ref.read(activeCampanaIdProvider.notifier).state = c.id,
-                  ),
-                )),
-        ],
-      ),
+    final data = ref.watch(dashboardDataProvider).value;
+    final cosechas = ref.watch(cosechasProvider);
+    final stage = CampaignStage.of(
+      campana,
+      hasHarvests: cosechas.pendientes.isNotEmpty || cosechas.entregadas.isNotEmpty,
+      hasRecords: ((data?['total_gastos'] as double?) ?? 0) > 0,
     );
-  }
 
-  // ═══════════════════════════════════════════════
-  //  MAIN DASHBOARD
-  // ═══════════════════════════════════════════════
-
-  Widget _buildDashboard(BuildContext context, dynamic campana, CampanaListState campanaState) {
-    final dashboardData = ref.watch(dashboardDataProvider);
-    final now = DateTime.now();
-    final diasTranscurridos = campana.fechaInicio != null ? now.difference(campana.fechaInicio!).inDays : 0;
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildHeroCampaignCard(context, campana, diasTranscurridos),
-          const SizedBox(height: 16),
-          _buildFinancialSummary(context, dashboardData.value),
-          const SizedBox(height: 20),
-          _buildActivityFeedSection(context, campana),
-          const SizedBox(height: 24),
-          _buildDiscreetSecondaryActions(context, campana),
-        ],
-      ),
-    );
-  }
-
-  // ─────────────────────────────────────────────
-  //  1. HERO CAMPAIGN CARD with SWAP button
-  // ─────────────────────────────────────────────
-
-  Widget _buildHeroCampaignCard(BuildContext context, dynamic campana, int diasTranscurridos) {
-    final cropEmoji = _getCropEmoji(campana.cultivo);
-    final fechaInicio = campana.fechaInicio != null ? DateFormat('dd MMM yyyy', 'es').format(campana.fechaInicio!) : '';
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [AppColors.primaryContainer, AppColors.primaryContainer.withValues(alpha: 0.85)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(color: AppColors.primaryContainer.withValues(alpha: 0.3), blurRadius: 16, offset: const Offset(0, 6)),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(999)),
-                child: Text('CAMPAÑA ACTIVA', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.white, fontWeight: FontWeight.w700, letterSpacing: 1.2)),
-              ),
-              GestureDetector(
-                onTap: () => _showCampaignSwitcher(context),
-                child: Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.15), shape: BoxShape.circle),
-                  child: const Icon(Icons.swap_horiz, color: Colors.white, size: 22),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(16)),
-                child: Center(child: Text(cropEmoji, style: const TextStyle(fontSize: 32))),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(campana.nombre, style: Theme.of(context).textTheme.headlineSmall?.copyWith(color: Colors.white, fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 2),
-                    Text('${campana.extensionDisplay} • Inicio: $fechaInicio', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.white70)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(child: _buildInfoBox(context, label: 'Días Transcurridos', value: '$diasTranscurridos Días')),
-              const SizedBox(width: 10),
-              Expanded(child: _buildInfoBox(context, label: 'Estado', value: campana.isActive ? 'Activa' : 'Cerrada')),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showCampaignSwitcher(BuildContext context) {
-    final campanas = ref.read(campanaListProvider).campanas;
-    final currentId = ref.read(activeCampanaIdProvider);
-
-    if (campanas.length <= 1) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Solo tienes una campaña activa')),
-      );
-      return;
-    }
-
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => Container(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.outlineVariant,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text('Cambiar campaña', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 4),
-            Text('Selecciona la campaña que deseas administrar', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.onSurfaceVariant)),
-            const SizedBox(height: 16),
-            ...campanas.map((c) {
-              final isActive = c.id == currentId;
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: ListTile(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    side: BorderSide(color: isActive ? AppColors.primary : AppColors.surfaceVariant, width: isActive ? 2 : 1),
-                  ),
-                  tileColor: isActive ? AppColors.primaryContainer.withValues(alpha: 0.12) : null,
-                  leading: Text(_getCropEmoji(c.cultivo), style: const TextStyle(fontSize: 28)),
-                  title: Text(c.nombre, style: const TextStyle(fontWeight: FontWeight.w600)),
-                  subtitle: Text(c.extensionDisplay),
-                  trailing: isActive
-                      ? const Icon(Icons.check_circle, color: AppColors.primary)
-                      : null,
-                  onTap: () {
-                    Navigator.of(ctx).pop();
-                    ref.read(activeCampanaIdProvider.notifier).state = c.id;
-                  },
-                ),
-              );
-            }),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInfoBox(BuildContext context, {required String label, required String value}) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.white54, letterSpacing: 0.5)),
-          const SizedBox(height: 4),
-          Text(value, style: Theme.of(context).textTheme.labelLarge?.copyWith(color: Colors.white, fontWeight: FontWeight.w700)),
-        ],
-      ),
-    );
-  }
-
-  // ─────────────────────────────────────────────
-  //  2. FINANCIAL SUMMARY
-  // ─────────────────────────────────────────────
-
-  Widget _buildFinancialSummary(BuildContext context, Map<String, dynamic>? data) {
-    final invertido = data?['total_gastos'] as double? ?? 0;
-    final recaudado = data?['total_ingresos'] as double? ?? 0;
-
-    return Row(
+    return ListView(
+      // El contenido pasa por detrás de la barra flotante sin quedar tapado al final.
+      padding: EdgeInsets.fromLTRB(20, 4, 20, 24 + MediaQuery.paddingOf(context).bottom),
       children: [
-        Expanded(child: _buildFinanceCard(context, label: 'Invertido', value: 'S/${invertido.toStringAsFixed(0)}', color: AppColors.error, bgColor: const Color(0xFFFEE2E2), icon: Icons.trending_down)),
-        const SizedBox(width: 10),
-        Expanded(child: _buildFinanceCard(context, label: 'Recaudado', value: 'S/${recaudado.toStringAsFixed(0)}', color: AppColors.statusActive, bgColor: const Color(0xFFDCFCE7), icon: Icons.trending_up)),
+        _Greeting(campana: campana),
+        const SizedBox(height: 14),
+        _CampaignChip(campana: campana, stage: stage, onTap: () => _showCampaignSwitcher(campana)),
+        const SizedBox(height: 16),
+        _BalanceCard(data: data, campana: campana, stage: stage, soldUnits: _soldUnits(cosechas.entregadas)),
+        const SizedBox(height: 24),
+        SectionHeader(title: 'Acciones rápidas', actionLabel: 'Más', onAction: () => _showMoreActions(campana)),
+        AgroActionButton(
+          label: 'Registrar gasto o jornal',
+          icon: Icons.add_circle_rounded,
+          primary: true,
+          height: 56,
+          onPressed: () => _openForm(campana, 'Gasto'),
+        ),
+        const SizedBox(height: 10),
+        AgroActionButton(
+          label: 'Registrar despacho o venta',
+          icon: Icons.local_shipping_rounded,
+          height: 54,
+          onPressed: () => context.go('/c/${campana.id}/cosechas'),
+        ),
+        const SizedBox(height: 24),
+        const SectionHeader(title: 'Registro rápido de gastos'),
+        _QuickExpenseGrid(onSelected: (categoria) => _openForm(campana, 'Gasto', categoria: categoria)),
+        const SizedBox(height: 24),
+        _PendingShipments(campanaId: campana.id, pendientes: cosechas.pendientes),
+        _TodayMovements(campanaId: campana.id),
       ],
     );
   }
 
-  Widget _buildFinanceCard(BuildContext context, {required String label, required String value, required Color color, required Color bgColor, required IconData icon}) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withValues(alpha: 0.1)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+  static int _soldUnits(List<Cosecha> entregadas) =>
+      entregadas.fold<int>(0, (sum, c) => sum + c.cantidadUnidades);
+
+  // ── Acciones ──
+
+  void _openForm(Campana campana, String type, {String? categoria}) {
+    final (id, nombre) = (campana.id, campana.nombre);
+    switch (type) {
+      case 'Gasto':
+        showExpenseSheet(context, campanaId: id, campanaNombre: nombre, categoria: categoria);
+      case 'Ingreso':
+        showIncomeSheet(context, campanaId: id, campanaNombre: nombre);
+      default:
+        showLaborSheet(context, campanaId: id, campanaNombre: nombre);
+    }
+  }
+
+  void _showCampaignSwitcher(Campana current) {
+    final campanas = ref.read(campanaListProvider).campanas;
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => ListView(
+        shrinkWrap: true,
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
         children: [
-          Row(
-            children: [
-              Icon(icon, size: 18, color: color),
-              const SizedBox(width: 6),
-              Text(label.toUpperCase(), style: Theme.of(context).textTheme.labelSmall?.copyWith(color: color.withValues(alpha: 0.8), fontWeight: FontWeight.w700, letterSpacing: 0.5)),
-            ],
+          Text('Cambiar campaña', style: Theme.of(ctx).textTheme.titleLarge),
+          const SizedBox(height: 14),
+          for (final c in campanas)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: GlassCard(
+                highlight: c.id == current.id,
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  ref.read(activeCampanaIdProvider.notifier).state = c.id;
+                  context.go('/c/${c.id}/inicio');
+                },
+                child: Row(
+                  children: [
+                    Text(cropEmoji(c.cultivo), style: const TextStyle(fontSize: 26)),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(c.nombre, style: Theme.of(ctx).textTheme.titleSmall),
+                          Text('${c.cultivo} · ${c.extensionDisplay}', style: Theme.of(ctx).textTheme.bodySmall),
+                        ],
+                      ),
+                    ),
+                    if (c.id == current.id) Icon(Icons.check_circle_rounded, color: AppColors.accent),
+                  ],
+                ),
+              ),
+            ),
+          const SizedBox(height: 4),
+          OutlinedButton.icon(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              context.push('/nueva-campana');
+            },
+            icon: const Icon(Icons.add_rounded),
+            label: const Text('Nueva campaña'),
           ),
-          const SizedBox(height: 6),
-          Text(value, style: Theme.of(context).textTheme.headlineSmall?.copyWith(color: color, fontWeight: FontWeight.w700)),
         ],
       ),
     );
   }
 
-  // ─────────────────────────────────────────────
-  //  3. ACTIVITY FEED SECTION
-  // ─────────────────────────────────────────────
+  void _showMoreActions(Campana campana) {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) {
+        Widget action(IconData icon, String label, VoidCallback onTap, {Color? color}) => ListTile(
+              leading: Icon(icon, color: color ?? AppColors.accent),
+              title: Text(label, style: TextStyle(color: color ?? AppColors.text, fontWeight: FontWeight.w600)),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                onTap();
+              },
+            );
 
-  Widget _buildActivityFeedSection(BuildContext context, dynamic campana) {
-    final now = DateTime.now();
-    final todayParam = (campana.id as int, now);
-    final entriesAsync = ref.watch(historialDayProvider(todayParam));
-    final cosechasState = ref.watch(cosechasProvider);
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              action(Icons.north_east_rounded, 'Registrar ingreso directo', () => _openForm(campana, 'Ingreso')),
+              action(Icons.agriculture_rounded, 'Registrar labor', () => _openForm(campana, 'Actividad')),
+              action(Icons.calendar_month_rounded, 'Ver historial', () => context.go('/c/${campana.id}/historial')),
+              action(Icons.add_circle_outline_rounded, 'Nueva campaña', () => context.push('/nueva-campana')),
+              if (campana.isActive)
+                action(Icons.lock_outline_rounded, 'Cerrar campaña', () => closeCampanaFlow(context, ref, campana),
+                    color: AppColors.error),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════
+//  Secciones
+// ═══════════════════════════════════════════════
+
+class _Greeting extends ConsumerWidget {
+  final Campana campana;
+
+  const _Greeting({required this.campana});
+
+  String get _greeting {
+    final h = DateTime.now().hour;
+    if (h < 12) return 'Buenos días';
+    if (h < 19) return 'Buenas tardes';
+    return 'Buenas noches';
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final text = Theme.of(context).textTheme;
+    final name = ref.watch(authProvider).user?.nombreCompleto ?? 'Agricultor';
+    final dias = campana.fechaInicio == null ? null : DateTime.now().difference(campana.fechaInicio!).inDays;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        entriesAsync.when(
-          loading: () => const SizedBox.shrink(),
-          error: (e, _) => const SizedBox.shrink(),
-          data: (entries) {
-            final labores = entries.where((e) => e.tipo == 'actividad').length;
-            final gastos = entries.where((e) => e.tipo == 'gasto').fold<double>(0, (sum, e) => sum + (e.monto ?? 0));
-            final parts = <String>[];
-            if (labores > 0) parts.add('$labores labor${labores > 1 ? 'es' : ''}');
-            if (gastos > 0) parts.add('S/ ${gastos.toStringAsFixed(0)} en gastos');
-            final summary = parts.isEmpty ? 'Sin actividad hoy' : 'Hoy: ${parts.join(' y ')}';
-            return Text(summary, style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontSize: 18, fontWeight: FontWeight.w600));
-          },
+        Row(
+          children: [
+            Icon(Icons.wb_sunny_outlined, size: 15, color: AppColors.accent),
+            const SizedBox(width: 5),
+            Text(_greeting, style: text.bodySmall),
+          ],
         ),
-        const SizedBox(height: 12),
-        SizedBox(
-          height: 38,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            children: [
-              _buildFilterChip('Todos', isSelected: _feedFilter == 'todos', onTap: () => setState(() => _feedFilter = 'todos')),
-              _buildFilterChip('Gastos', icon: Icons.payments, isSelected: _feedFilter == 'gasto', onTap: () => setState(() => _feedFilter = 'gasto')),
-              _buildFilterChip('Labores', icon: Icons.agriculture, isSelected: _feedFilter == 'actividad', onTap: () => setState(() => _feedFilter = 'actividad')),
-              _buildFilterChip('Cosechas', icon: Icons.local_shipping, isSelected: _feedFilter == 'cosecha', onTap: () => setState(() => _feedFilter = 'cosecha')),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        if (_feedFilter == 'todos' || _feedFilter == 'cosecha')
-          ...cosechasState.pendientes.take(3).map((cosecha) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: _buildCosechaItem(context, cosecha),
-              )),
-        entriesAsync.when(
-          loading: () => const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator())),
-          error: (e, _) => Center(child: Text('Error: $e')),
-          data: (entries) {
-            final filtered = _feedFilter == 'todos' ? entries : entries.where((e) => e.tipo == _feedFilter).toList();
-            if (filtered.isEmpty && cosechasState.pendientes.isEmpty) {
-              return Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(28),
-                decoration: BoxDecoration(color: AppColors.surfaceContainerLowest, borderRadius: BorderRadius.circular(14), border: Border.all(color: AppColors.surfaceVariant)),
-                child: Column(children: [
-                  Icon(Icons.event_available, size: 40, color: AppColors.outlineVariant),
-                  const SizedBox(height: 8),
-                  Text('Sin registros hoy', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppColors.onSurfaceVariant)),
-                  const SizedBox(height: 4),
-                  Text('Registra desde el cuaderno', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.outlineVariant)),
-                ]),
-              );
-            }
-            return Column(
-              children: [
-                ...filtered.map((e) => Padding(padding: const EdgeInsets.only(bottom: 10), child: _buildFeedItem(context, e))),
-                if (entries.isNotEmpty)
-                  GestureDetector(
-                    onTap: () => context.go('/c/${campana.id}/historial'),
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Center(
-                        child: Text(
-                          'Ver historial completo de esta campaña',
-                          style: Theme.of(context).textTheme.labelLarge?.copyWith(color: AppColors.primary, fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            );
-          },
+        const SizedBox(height: 2),
+        Text(name, style: text.headlineSmall, maxLines: 1, overflow: TextOverflow.ellipsis),
+        const SizedBox(height: 2),
+        Text(
+          [campana.extensionDisplay, if (dias != null) '$dias días de campaña'].join(' · '),
+          style: text.bodySmall?.copyWith(color: AppColors.textSubtle),
         ),
       ],
     );
   }
+}
 
-  Widget _buildFilterChip(String label, {IconData? icon, required bool isSelected, required VoidCallback onTap}) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: GestureDetector(
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          decoration: BoxDecoration(
-            color: isSelected ? AppColors.primary : AppColors.surfaceContainerHigh,
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (icon != null) ...[
-                Icon(icon, size: 16, color: isSelected ? AppColors.onPrimary : AppColors.onSurfaceVariant),
-                const SizedBox(width: 6),
+class _CampaignChip extends StatelessWidget {
+  final Campana campana;
+  final CampaignStage stage;
+  final VoidCallback onTap;
+
+  const _CampaignChip({required this.campana, required this.stage, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final year = campana.fechaInicio?.year;
+
+    return GlassCard(
+      radius: 16,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      onTap: onTap,
+      child: Row(
+        children: [
+          Text(cropEmoji(campana.cultivo), style: const TextStyle(fontSize: 22)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(campana.nombre, maxLines: 1, overflow: TextOverflow.ellipsis, style: text.titleSmall),
+                Text(
+                  '${campana.cultivo}${year != null ? ' · Campaña $year' : ''}',
+                  style: text.labelSmall,
+                ),
               ],
-              Text(label, style: Theme.of(context).textTheme.labelLarge?.copyWith(color: isSelected ? AppColors.onPrimary : AppColors.onSurfaceVariant, fontWeight: FontWeight.w600)),
+            ),
+          ),
+          const SizedBox(width: 8),
+          _StagePill(stage: stage),
+          const SizedBox(width: 4),
+          Icon(Icons.unfold_more_rounded, size: 18, color: AppColors.textSubtle),
+        ],
+      ),
+    );
+  }
+}
+
+class _StagePill extends StatelessWidget {
+  final CampaignStage stage;
+
+  const _StagePill({required this.stage});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppColors.accent.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(stage.icon, size: 13, color: AppColors.accent),
+          const SizedBox(width: 4),
+          Text(
+            stage.label,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(color: AppColors.accent, fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Tarjeta principal: balance, rentabilidad, etapa y desglose ingresos/gastos.
+class _BalanceCard extends StatelessWidget {
+  final Map<String, dynamic>? data;
+  final Campana campana;
+  final CampaignStage stage;
+  final int soldUnits;
+
+  const _BalanceCard({required this.data, required this.campana, required this.stage, required this.soldUnits});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final balance = (data?['balance'] as double?) ?? 0;
+    final gastos = (data?['total_gastos'] as double?) ?? 0;
+    final ingresos = (data?['total_ingresos'] as double?) ?? 0;
+    final positive = balance >= 0;
+
+    // "S/ 48,320.20" → parte entera destacada y decimales atenuados.
+    final formatted = _amount.format(balance.abs());
+    final dot = formatted.lastIndexOf('.');
+
+    return GlassCard(
+      highlight: true,
+      radius: 24,
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.analytics_outlined, size: 16, color: AppColors.accent),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'BALANCE DE CAMPAÑA',
+                  style: text.labelSmall?.copyWith(letterSpacing: 1.2, fontWeight: FontWeight.w700),
+                ),
+              ),
+              GlassCircleButton(
+                icon: Icons.info_outline_rounded,
+                tooltip: 'Cómo se calcula',
+                size: 32,
+                onPressed: () => _explain(context),
+              ),
             ],
           ),
-        ),
+          const SizedBox(height: 6),
+          Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(
+                  text: '${positive ? '' : '-'}S/ ',
+                  style: AppTheme.display(fontSize: 20, color: AppColors.textMuted),
+                ),
+                TextSpan(text: formatted.substring(0, dot)),
+                TextSpan(
+                  text: formatted.substring(dot),
+                  style: AppTheme.display(fontSize: 20, color: AppColors.textMuted),
+                ),
+              ],
+            ),
+            style: AppTheme.display(fontSize: 34, color: positive ? AppColors.text : AppColors.expense),
+          ),
+          if (gastos > 0) ...[
+            const SizedBox(height: 8),
+            _ProfitBadge(rate: balance / gastos * 100),
+          ],
+          const SizedBox(height: 14),
+          _StageProgress(stage: stage, campana: campana),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _MiniStat(
+                  icon: Icons.south_west_rounded,
+                  label: 'Ingresos',
+                  value: 'S/ ${_amount.format(ingresos)}',
+                  color: AppColors.positive,
+                  caption: soldUnits > 0 ? '${_count.format(soldUnits)} bultos vendidos' : 'Ventas y cobros',
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _MiniStat(
+                  icon: Icons.north_east_rounded,
+                  label: 'Gastos',
+                  value: 'S/ ${_amount.format(gastos)}',
+                  color: AppColors.expense,
+                  caption: 'Inversión total',
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildCosechaItem(BuildContext context, dynamic cosecha) {
-    final isKilo = cosecha.tipoVenta != 'javas';
-    final unitLabel = isKilo ? 'sacos' : 'javas';
-    final isPendiente = cosecha.estado == 'pendiente';
+  void _explain(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('¿Cómo se calcula?'),
+        content: const Text(
+          'Balance = ingresos − gastos.\n\n'
+          'Ingresos: ventas en campo, ingresos directos y despachos ya liquidados (neto, después de comisión y flete).\n\n'
+          'Rentabilidad = balance ÷ gastos. Indica cuánto ganaste por cada sol invertido.',
+        ),
+        actions: [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Entendido'))],
+      ),
+    );
+  }
+}
+
+class _ProfitBadge extends StatelessWidget {
+  final double rate;
+
+  const _ProfitBadge({required this.rate});
+
+  @override
+  Widget build(BuildContext context) {
+    final positive = rate >= 0;
+    final color = positive ? AppColors.positive : AppColors.expense;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(positive ? Icons.trending_up_rounded : Icons.trending_down_rounded, size: 16, color: color),
+          const SizedBox(width: 5),
+          Text(
+            '${positive ? '+' : ''}${rate.toStringAsFixed(1)}% de rentabilidad',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(color: color, fontWeight: FontWeight.w800),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Barra segmentada de la etapa de la campaña.
+class _StageProgress extends StatelessWidget {
+  final CampaignStage stage;
+  final Campana campana;
+
+  const _StageProgress({required this.stage, required this.campana});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final current = stage.index;
 
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppColors.surfaceContainerLowest,
+        color: AppColors.track.withValues(alpha: AppColors.palette.isDark ? 0.25 : 0.5),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.surfaceVariant),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 4, offset: const Offset(0, 1))],
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Etapa: ${stage.label}',
+                  style: text.labelMedium?.copyWith(color: AppColors.text, fontWeight: FontWeight.w700),
+                ),
+              ),
+              Text(
+                campana.isClosed ? 'Campaña cerrada' : 'Campaña en curso',
+                style: text.labelSmall,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              for (final s in CampaignStage.values) ...[
+                if (s.index > 0) const SizedBox(width: 5),
+                Expanded(
+                  child: Container(
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: s.index <= current ? AppColors.accent : AppColors.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(999),
+                      boxShadow: s.index <= current && AppColors.palette.isDark
+                          ? [BoxShadow(color: AppColors.palette.ctaGlow, blurRadius: 8)]
+                          : null,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              for (final s in CampaignStage.values)
+                Expanded(
+                  child: Text(
+                    s.label,
+                    textAlign: switch (s.index) {
+                      0 => TextAlign.start,
+                      3 => TextAlign.end,
+                      _ => TextAlign.center,
+                    },
+                    style: text.labelSmall?.copyWith(
+                      fontSize: 10,
+                      color: s == stage ? AppColors.accent : AppColors.textSubtle,
+                      fontWeight: s == stage ? FontWeight.w800 : FontWeight.w500,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MiniStat extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final String caption;
+  final Color color;
+
+  const _MiniStat({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.caption,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.accentSoft,
+        borderRadius: BorderRadius.circular(14),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Expanded(
-                child: Row(
+              Icon(icon, size: 15, color: color),
+              const SizedBox(width: 4),
+              Text(label, style: text.labelMedium),
+            ],
+          ),
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(value, style: AppTheme.display(fontSize: 16, color: color)),
+          ),
+          const SizedBox(height: 2),
+          Text(caption, style: text.labelSmall?.copyWith(fontSize: 10), maxLines: 1, overflow: TextOverflow.ellipsis),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickExpenseGrid extends StatelessWidget {
+  final ValueChanged<String> onSelected;
+
+  const _QuickExpenseGrid({required this.onSelected});
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.count(
+      crossAxisCount: 4,
+      shrinkWrap: true,
+      padding: EdgeInsets.zero,
+      physics: const NeverScrollableScrollPhysics(),
+      mainAxisSpacing: 10,
+      crossAxisSpacing: 10,
+      childAspectRatio: 0.95,
+      children: [
+        for (final (icon, label, categoria) in _quickExpenses)
+          GlassCard(
+            radius: 18,
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+            onTap: () => onSelected(categoria),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: AppColors.accentSoft,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(icon, size: 19, color: AppColors.accent),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(color: AppColors.text),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Despachos enviados que aún esperan la liquidación del mercado.
+class _PendingShipments extends StatelessWidget {
+  final int campanaId;
+  final List<Cosecha> pendientes;
+
+  const _PendingShipments({required this.campanaId, required this.pendientes});
+
+  @override
+  Widget build(BuildContext context) {
+    if (pendientes.isEmpty) return const SizedBox.shrink();
+
+    final text = Theme.of(context).textTheme;
+    final first = pendientes.first;
+    final bultos = pendientes.fold<int>(0, (sum, c) => sum + c.cantidadUnidades);
+    final dias = _daysSince(first.fechaEnvio);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24),
+      child: Column(
+        children: [
+          SectionHeader(
+            title: 'Por liquidar',
+            actionLabel: 'Ver cosechas',
+            onAction: () => context.go('/c/$campanaId/cosechas'),
+          ),
+          GlassCard(
+            highlight: true,
+            radius: 24,
+            padding: const EdgeInsets.all(16),
+            onTap: () => context.go('/c/$campanaId/cosechas'),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
                     Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(color: const Color(0xFFFFF3E0), borderRadius: BorderRadius.circular(12)),
-                      child: const Icon(Icons.local_shipping, color: Color(0xFFE65100), size: 22),
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: AppColors.accentSoft,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(Icons.storefront_outlined, color: AppColors.accent, size: 22),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Envío: ${cosecha.cantidadUnidades} $unitLabel', style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700)),
-                          const SizedBox(height: 2),
-                          Text('${cosecha.mercadoDestino}', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.onSurfaceVariant)),
+                          Text(
+                            first.mercadoDestino.isEmpty ? 'Despacho' : 'Despacho a ${first.mercadoDestino}',
+                            style: text.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                          Text(
+                            pendientes.length == 1
+                                ? 'Esperando liquidación del mercado'
+                                : '${pendientes.length} despachos esperando liquidación',
+                            style: text.bodySmall,
+                          ),
                         ],
                       ),
                     ),
+                    Icon(Icons.chevron_right_rounded, color: AppColors.textSubtle),
                   ],
                 ),
-              ),
-              if (isPendiente)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(color: AppColors.statusPending.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(6)),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.pending, size: 14, color: AppColors.secondary),
-                      const SizedBox(width: 4),
-                      Text('Pendiente', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: AppColors.onSecondaryContainer, fontWeight: FontWeight.w700)),
-                    ],
-                  ),
-                ),
-            ],
-          ),
-          if (isPendiente) ...[
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              height: 44,
-              child: ElevatedButton(
-                onPressed: () => context.go('/c/${cosecha.campanaId}/cosechas'),
-                style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: AppColors.onPrimary, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                child: Text('LIQUIDAR AHORA', style: Theme.of(context).textTheme.labelLarge?.copyWith(color: AppColors.onPrimary, fontWeight: FontWeight.w700)),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFeedItem(BuildContext context, dynamic e) {
-    IconData icon;
-    Color iconBg;
-    Color iconColor;
-
-    switch (e.tipo) {
-      case 'actividad':
-        icon = Icons.agriculture;
-        iconBg = const Color(0xFFE3F2FD);
-        iconColor = const Color(0xFF1565C0);
-        break;
-      case 'gasto':
-        icon = Icons.payments;
-        iconBg = const Color(0xFFFEE2E2);
-        iconColor = AppColors.error;
-        break;
-      case 'ingreso':
-        icon = Icons.attach_money;
-        iconBg = const Color(0xFFE8F5E9);
-        iconColor = AppColors.primary;
-        break;
-      case 'cosecha':
-        icon = Icons.local_shipping;
-        iconBg = const Color(0xFFFFF3E0);
-        iconColor = const Color(0xFFE65100);
-        break;
-      default:
-        icon = Icons.circle;
-        iconBg = AppColors.surfaceContainerHigh;
-        iconColor = AppColors.onSurfaceVariant;
-    }
-
-    final timeStr = e.hora != '--:--' ? e.hora : '';
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.surfaceVariant),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(12)),
-            child: Icon(icon, color: iconColor, size: 22),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(e.titulo, style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis),
-                const SizedBox(height: 2),
+                const SizedBox(height: 12),
+                const Divider(),
+                const SizedBox(height: 10),
                 Row(
                   children: [
-                    if (timeStr.isNotEmpty) ...[
-                      Text(timeStr, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.onSurfaceVariant)),
-                      const SizedBox(width: 8),
-                    ],
-                    Flexible(
-                      child: Text(e.descripcion, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.onSurfaceVariant), maxLines: 1, overflow: TextOverflow.ellipsis),
+                    Expanded(child: _Metric(label: 'Despachos', value: '${pendientes.length}')),
+                    Expanded(child: _Metric(label: 'Bultos enviados', value: _count.format(bultos))),
+                    Expanded(
+                      child: _Metric(
+                        label: 'En camino',
+                        value: dias == null ? '—' : '$dias día${dias == 1 ? '' : 's'}',
+                        highlight: (dias ?? 0) > 4,
+                      ),
                     ),
                   ],
                 ),
               ],
             ),
           ),
-          if (e.monto != null && e.monto! > 0) ...[
-            const SizedBox(width: 8),
-            Text('S/${e.monto!.toStringAsFixed(0)}', style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700, color: e.tipo == 'gasto' ? AppColors.error : AppColors.primary)),
-          ],
-          const SizedBox(width: 8),
-          Icon(e.isSynced ? Icons.cloud_done : Icons.cloud_off, size: 14, color: e.isSynced ? AppColors.primary : AppColors.secondary),
         ],
       ),
     );
   }
 
-  // ─────────────────────────────────────────────
-  //  4. DISCREET SECONDARY ACTIONS (footer links)
-  // ─────────────────────────────────────────────
+  static int? _daysSince(String? fecha) {
+    final date = fecha == null ? null : DateTime.tryParse(fecha);
+    return date == null ? null : DateTime.now().difference(date).inDays;
+  }
+}
 
-  Widget _buildDiscreetSecondaryActions(BuildContext context, dynamic campana) {
+class _Metric extends StatelessWidget {
+  final String label;
+  final String value;
+  final bool highlight;
+
+  const _Metric({required this.label, required this.value, this.highlight = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: Theme.of(context).textTheme.labelSmall),
+        const SizedBox(height: 2),
+        Text(value, style: AppTheme.display(fontSize: 15, color: highlight ? AppColors.warning : AppColors.text)),
+      ],
+    );
+  }
+}
+
+class _TodayMovements extends ConsumerWidget {
+  final int campanaId;
+
+  const _TodayMovements({required this.campanaId});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final now = DateTime.now();
+    final entries = ref.watch(historialDayProvider((campanaId, DateTime(now.year, now.month, now.day))));
+
     return Column(
       children: [
-        Container(height: 1, color: AppColors.surfaceVariant.withValues(alpha: 0.5)),
-        const SizedBox(height: 12),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            GestureDetector(
-              onTap: () => context.push('/nueva-campana'),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.add_circle_outline, size: 14, color: AppColors.onSurfaceVariant.withValues(alpha: 0.6)),
-                  const SizedBox(width: 4),
-                  Text('Nueva campaña', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.onSurfaceVariant.withValues(alpha: 0.6), fontWeight: FontWeight.w500)),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Container(width: 1, height: 12, color: AppColors.outlineVariant.withValues(alpha: 0.5)),
-            ),
-            GestureDetector(
-              onTap: () => _showCloseCampaignDialog(context, campana),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.cancel_outlined, size: 14, color: AppColors.error.withValues(alpha: 0.5)),
-                  const SizedBox(width: 4),
-                  Text('Cerrar campaña', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.error.withValues(alpha: 0.5), fontWeight: FontWeight.w500)),
-                ],
-              ),
-            ),
-          ],
+        SectionHeader(
+          title: 'Movimientos de hoy',
+          actionLabel: 'Ver todos',
+          onAction: () => context.go('/c/$campanaId/historial'),
+        ),
+        entries.when(
+          loading: () => const Padding(
+            padding: EdgeInsets.all(24),
+            child: Center(child: CircularProgressIndicator()),
+          ),
+          error: (e, _) => Text('Error: $e', style: TextStyle(color: AppColors.error)),
+          data: (list) => list.isEmpty
+              ? GlassCard(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    children: [
+                      Icon(Icons.event_available_rounded, color: AppColors.textSubtle, size: 32),
+                      const SizedBox(height: 8),
+                      Text('Sin movimientos hoy', style: Theme.of(context).textTheme.bodyMedium),
+                      const SizedBox(height: 2),
+                      Text('Registra un gasto o usa un atajo de arriba', style: Theme.of(context).textTheme.bodySmall),
+                    ],
+                  ),
+                )
+              : Column(
+                  children: [
+                    for (final e in list)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: MovementTile(entry: e),
+                      ),
+                  ],
+                ),
         ),
       ],
     );
   }
+}
 
-  void _showCloseCampaignDialog(BuildContext context, dynamic campana) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Cerrar campaña'),
-        content: Text('¿Estás seguro de que deseas cerrar "${campana.nombre}"? Esta acción no se puede deshacer.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancelar')),
-          TextButton(
-            onPressed: () async {
-              Navigator.of(ctx).pop();
-              await _closeCampana(campana);
-            },
-            child: Text('Cerrar', style: TextStyle(color: AppColors.error)),
+/// Fila de movimiento: icono por tipo, título, hora/descripción, estado de
+/// sincronización y monto con signo.
+class MovementTile extends StatelessWidget {
+  final HistorialEntry entry;
+
+  const MovementTile({super.key, required this.entry});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final (icon, color) = switch (entry.tipo) {
+      'gasto' => (Icons.payments_outlined, AppColors.expense),
+      'ingreso' => (Icons.savings_outlined, AppColors.positive),
+      'cosecha' => (Icons.local_shipping_outlined, AppColors.warning),
+      'incidencia' => (Icons.report_outlined, AppColors.error),
+      _ => (Icons.agriculture_outlined, AppColors.info),
+    };
+    final monto = entry.monto;
+    final syncColor = entry.isSynced ? AppColors.accent : AppColors.warning;
+
+    return GlassCard(
+      radius: 18,
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.13),
+              borderRadius: BorderRadius.circular(13),
+            ),
+            child: Icon(icon, size: 21, color: color),
           ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(entry.titulo, maxLines: 1, overflow: TextOverflow.ellipsis, style: text.titleSmall),
+                Text(
+                  [if (entry.hora != '--:--') entry.hora, entry.descripcion].where((s) => s.isNotEmpty).join(' · '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: text.bodySmall,
+                ),
+                const SizedBox(height: 3),
+                Row(
+                  children: [
+                    Container(width: 6, height: 6, decoration: BoxDecoration(color: syncColor, shape: BoxShape.circle)),
+                    const SizedBox(width: 5),
+                    Text(
+                      entry.isSynced ? 'Sincronizado' : 'Pendiente de subida',
+                      style: text.labelSmall?.copyWith(fontSize: 10, color: syncColor),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          if (monto != null && monto > 0) ...[
+            const SizedBox(width: 8),
+            Text(
+              signedAmount(entry.tipo == 'ingreso' ? monto : -monto),
+              style: AppTheme.display(
+                fontSize: 14,
+                color: entry.tipo == 'ingreso' ? AppColors.positive : AppColors.expense,
+              ),
+            ),
+          ],
         ],
       ),
     );
   }
+}
 
-  Future<void> _closeCampana(dynamic campana) async {
-    try {
-      final localDs = ref.read(campanaLocalDatasourceProvider);
-      await localDs.updateCampana(campana.id, {'estado': 'cerrada', 'fecha_cierre': DateTime.now().toIso8601String()});
-      await ref.read(campanaListProvider.notifier).loadCampanas();
-      ref.read(dashboardRefreshTrigger.notifier).update((s) => s + 1);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${campana.nombre} cerrada')));
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
-    }
-  }
+class _NoCampaignView extends ConsumerWidget {
+  final CampanaListState state;
 
-  String _getCropEmoji(String cultivo) {
-    final c = cultivo.toLowerCase();
-    if (c.contains('tomate')) return '🍅';
-    if (c.contains('cebolla')) return '🧅';
-    if (c.contains('ajo')) return '🧄';
-    if (c.contains('vainita')) return '🫛';
-    if (c.contains('papa')) return '🥔';
-    if (c.contains('maíz') || c.contains('maiz')) return '🌽';
-    if (c.contains('palto') || c.contains('aguacate')) return '🥑';
-    if (c.contains('uva')) return '🍇';
-    if (c.contains('manzana')) return '🍎';
-    if (c.contains('naranja')) return '🍊';
-    return '🌱';
+  const _NoCampaignView({required this.state});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final text = Theme.of(context).textTheme;
+    return ListView(
+      padding: EdgeInsets.fromLTRB(20, 8, 20, 24 + MediaQuery.paddingOf(context).bottom),
+      children: [
+        Text('Elige una campaña', style: text.headlineSmall),
+        const SizedBox(height: 4),
+        Text('Selecciona la campaña que quieres administrar', style: text.bodySmall),
+        const SizedBox(height: 20),
+        AgroActionButton(
+          label: 'Nueva campaña',
+          icon: Icons.add_rounded,
+          primary: true,
+          onPressed: () => context.push('/nueva-campana'),
+        ),
+        const SizedBox(height: 20),
+        if (state.isLoading)
+          const Center(child: CircularProgressIndicator())
+        else if (state.campanas.isEmpty)
+          GlassCard(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              children: [
+                const Text('🌱', style: TextStyle(fontSize: 44)),
+                const SizedBox(height: 12),
+                Text('Aún no tienes campañas', style: text.titleMedium),
+                const SizedBox(height: 4),
+                Text('Crea la primera para empezar a registrar', style: text.bodySmall),
+              ],
+            ),
+          )
+        else
+          for (final c in state.campanas)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: CampaignCard(
+                title: c.nombre,
+                subtitle: c.cultivo,
+                startDate: c.fechaInicio != null
+                    ? 'Inicio: ${DateFormat('dd MMM yyyy', 'es').format(c.fechaInicio!)}'
+                    : 'Sin fecha',
+                extension: c.extensionDisplay,
+                isActive: c.isActive,
+                onTap: () => ref.read(activeCampanaIdProvider.notifier).state = c.id,
+              ),
+            ),
+      ],
+    );
   }
 }

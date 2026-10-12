@@ -85,7 +85,7 @@ class _CampaignSelectorScreenState extends ConsumerState<CampaignSelectorScreen>
 
   Widget _buildCampaignList(CampanaListState state) {
     if (state.isLoading) {
-      return const Center(
+      return Center(
         child: CircularProgressIndicator(color: AppColors.primary),
       );
     }
@@ -97,7 +97,7 @@ class _CampaignSelectorScreenState extends ConsumerState<CampaignSelectorScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.error_outline, size: 48, color: AppColors.error),
+              Icon(Icons.error_outline, size: 48, color: AppColors.error),
               const SizedBox(height: 16),
               Text(
                 state.error!,
@@ -125,7 +125,7 @@ class _CampaignSelectorScreenState extends ConsumerState<CampaignSelectorScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.agriculture, size: 64, color: AppColors.outlineVariant),
+              Icon(Icons.agriculture, size: 64, color: AppColors.outlineVariant),
               const SizedBox(height: 16),
               Text(
                 'No hay campañas registradas',

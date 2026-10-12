@@ -121,7 +121,7 @@ class _CosechasScreenState extends ConsumerState<CosechasScreen> {
                                   color: AppColors.primaryContainer,
                                   shape: BoxShape.circle,
                                 ),
-                                child: const Icon(
+                                child: Icon(
                                   Icons.check,
                                   size: 20,
                                   color: AppColors.primary,
@@ -248,7 +248,7 @@ class _CosechasScreenState extends ConsumerState<CosechasScreen> {
 
   Widget _buildPlanillasTile(int campanaId, String cultivo, int nPlanillas) {
     return Material(
-      color: const Color(0xFFFDF8EC),
+      color: AppColors.card,
       borderRadius: BorderRadius.circular(14),
       elevation: 1,
       shadowColor: Colors.black.withValues(alpha: 0.15),
@@ -272,7 +272,7 @@ class _CosechasScreenState extends ConsumerState<CosechasScreen> {
                   color: AppColors.surfaceContainerLowest,
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.description_outlined,
                   color: AppColors.primary,
                   size: 24,
@@ -303,7 +303,7 @@ class _CosechasScreenState extends ConsumerState<CosechasScreen> {
                 ),
               ),
               const SizedBox(width: 8),
-              const Icon(Icons.chevron_right, color: AppColors.outline),
+              Icon(Icons.chevron_right, color: AppColors.outline),
             ],
           ),
         ),
@@ -338,7 +338,7 @@ class _CosechasScreenState extends ConsumerState<CosechasScreen> {
 
   Widget _buildTabs() {
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: AppColors.outlineVariant)),
       ),
       child: Row(

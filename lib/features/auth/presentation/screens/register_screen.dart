@@ -77,7 +77,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         children: [
           Expanded(
             child: Container(
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 color: AppColors.surfaceContainer,
               ),
               child: Stack(
@@ -204,7 +204,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
               ),
             ],
           ),
-          child: const Icon(
+          child: Icon(
             Icons.eco,
             size: 32,
             color: AppColors.onPrimaryContainer,
@@ -426,7 +426,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       child: ElevatedButton(
         onPressed: isLoading ? null : _handleRegister,
         child: isLoading
-            ? const SizedBox(
+            ? SizedBox(
                 width: 24,
                 height: 24,
                 child: CircularProgressIndicator(
@@ -473,7 +473,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     ),
               ),
               const SizedBox(width: 4),
-              const Icon(
+              Icon(
                 Icons.login,
                 size: 16,
                 color: AppColors.primary,

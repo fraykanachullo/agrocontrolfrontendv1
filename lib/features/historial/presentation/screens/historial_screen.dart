@@ -272,7 +272,7 @@ class _HistorialScreenState extends ConsumerState<HistorialScreen> {
       'actividad' => (AppColors.primaryContainer, AppColors.onPrimaryContainer, Icons.science),
       'gasto' => (AppColors.secondaryContainer, AppColors.onSecondaryContainer, Icons.payments),
       'ingreso' => (AppColors.primaryContainer, AppColors.onPrimaryContainer, Icons.trending_up),
-      'cosecha' => (const Color(0xFFFFF3E0), const Color(0xFFE65100), Icons.local_shipping),
+      'cosecha' => (AppColors.secondaryContainer, AppColors.warning, Icons.local_shipping),
       _ => (AppColors.surfaceContainerHigh, AppColors.onSurfaceVariant, Icons.circle),
     };
 
