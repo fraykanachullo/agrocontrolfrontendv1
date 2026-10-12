@@ -4,7 +4,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/providers/app_providers.dart';
 import '../../domain/entities/planilla.dart';
 import '../widgets/planilla_template_sheet.dart';
-import 'planilla_editor_screen.dart';
+import '../planilla_routes.dart';
 
 class PlanillasScreen extends ConsumerWidget {
   final String campaignId;
@@ -237,10 +237,7 @@ class PlanillasScreen extends ConsumerWidget {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: Text(
-              'Eliminar',
-              style: TextStyle(color: AppColors.error),
-            ),
+            child: Text('Eliminar', style: TextStyle(color: AppColors.error)),
           ),
         ],
       ),
@@ -257,16 +254,13 @@ class PlanillasScreen extends ConsumerWidget {
     Planilla? planilla,
   }) async {
     final numero = planilla?.numeroHojaParse() ?? (_planillasCount(ref) + 1);
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => PlanillaEditorScreen(
-          campanaId: campanaId,
-          cultivo: planilla?.cultivo ?? cultivo,
-          tipo: planilla?.tipo ?? 'matricial',
-          numeroHoja: numero,
-          planilla: planilla,
-        ),
-      ),
+    await openPlanilla(
+      context,
+      campanaId: campanaId,
+      cultivo: planilla?.cultivo ?? cultivo,
+      tipo: planilla?.tipo ?? 'matricial',
+      numeroHoja: numero,
+      planilla: planilla,
     );
   }
 
@@ -279,15 +273,12 @@ class PlanillasScreen extends ConsumerWidget {
     final t = await showPlanillaTemplatePicker(context);
     if (t == null || !context.mounted) return;
     final numero = _planillasCount(ref) + 1;
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => PlanillaEditorScreen(
-          campanaId: campanaId,
-          cultivo: cultivo,
-          tipo: t,
-          numeroHoja: numero,
-        ),
-      ),
+    await openPlanilla(
+      context,
+      campanaId: campanaId,
+      cultivo: cultivo,
+      tipo: t,
+      numeroHoja: numero,
     );
     ref.read(planillasProvider.notifier).loadData(campanaId);
   }
