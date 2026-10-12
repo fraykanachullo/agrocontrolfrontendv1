@@ -33,6 +33,7 @@ abstract final class AppColors {
   static Color get info => _p.info;
   static Color get track => _p.track;
   static LinearGradient get ctaGradient => _p.cta;
+  static LinearGradient get progressGradient => _p.progress;
 
   static LinearGradient get cardGradient => LinearGradient(
         begin: Alignment.topLeft,

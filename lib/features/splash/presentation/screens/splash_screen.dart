@@ -1,9 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../../../core/theme/app_colors.dart';
+import '../../../../core/database/app_database.dart';
 import '../../../../core/providers/app_providers.dart';
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/widgets/glass.dart';
 
+/// Pantalla de arranque: abre la base local, verifica la sesión y decide
+/// a dónde ir. Los mensajes de progreso reflejan esos pasos reales.
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
 
@@ -11,143 +17,198 @@ class SplashScreen extends ConsumerStatefulWidget {
   ConsumerState<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends ConsumerState<SplashScreen>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final Animation<double> _fadeScale;
+class _SplashScreenState extends ConsumerState<SplashScreen> with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse = AnimationController(vsync: this, duration: const Duration(milliseconds: 1100))
+    ..repeat();
+  String _status = 'Abriendo la base de datos del teléfono…';
+  double _progress = 0.15;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1500),
-    );
-
-    _fadeScale = CurvedAnimation(
-      parent: _controller,
-      curve: const Interval(0, 0.6, curve: Curves.easeOutCubic),
-    );
-
-    _controller.forward();
-    _initAuth();
+    _start();
   }
 
-  Future<void> _initAuth() async {
-    // Wait for animation to show at least a bit
-    await Future.delayed(const Duration(seconds: 2));
+  void _step(String status, double progress) {
     if (!mounted) return;
+    setState(() {
+      _status = status;
+      _progress = progress;
+    });
+  }
 
-    // Check auth state
-    await ref.read(authProvider.notifier).checkAuth();
-
-    if (!mounted) return;
-    final authState = ref.read(authProvider);
-
-    if (authState.isAuthenticated) {
-      context.go('/campanas');
-    } else {
-      context.go('/login');
+  Future<void> _start() async {
+    // Tiempo mínimo para que el logo no parpadee.
+    final minimo = Future<void>.delayed(const Duration(milliseconds: 1400));
+    try {
+      await AppDatabase.database;
+    } catch (e) {
+      // No se bloquea el arranque: el error aparecerá en la pantalla que use la base.
+      debugPrint('No se pudo abrir la base local: $e');
     }
+    _step('Verificando tu sesión…', 0.6);
+    await ref.read(authProvider.notifier).checkAuth();
+    _step('Listo para trabajar', 1);
+    await minimo;
+    if (!mounted) return;
+    context.go(ref.read(authProvider).isAuthenticated ? '/campanas' : '/login');
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _pulse.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.primaryContainer,
-      body: Stack(
-        children: [
-          Center(
-            child: Container(
-              width: 300,
-              height: 300,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [
-                    Colors.white.withValues(alpha: 0.15),
-                    AppColors.primaryContainer.withValues(alpha: 0),
-                  ],
-                ),
-              ),
-            ),
-          ),
-
-          FadeTransition(
-            opacity: _fadeScale,
-            child: ScaleTransition(
-              scale:
-                  Tween<double>(begin: 0.95, end: 1.0).animate(_fadeScale),
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 120,
-                      height: 120,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(28),
-                      ),
-                      child: Icon(
-                        Icons.eco,
-                        size: 72,
-                        color: AppColors.surfaceContainerLowest,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    Text(
-                      'AgroControl',
-                      style: Theme.of(context)
-                          .textTheme
-                          .headlineLarge
-                          ?.copyWith(
-                            color: AppColors.surfaceContainerLowest,
-                            fontWeight: FontWeight.w700,
-                          ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-
-          Positioned(
-            bottom: 80,
-            left: 0,
-            right: 0,
+    final text = Theme.of(context).textTheme;
+    return AgroBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 20),
             child: Column(
               children: [
-                SizedBox(
-                  width: 48,
-                  height: 48,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 4,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      AppColors.secondaryContainer.withValues(alpha: 0.8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: _Pill(icon: Icons.cloud_off_rounded, label: 'Funciona sin internet'),
+                ),
+                const Spacer(),
+                const AppEmblem(size: 112),
+                const SizedBox(height: 28),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('AgroControl', style: text.headlineLarge),
+                    const SizedBox(width: 6),
+                    Container(
+                      width: 9,
+                      height: 9,
+                      decoration: BoxDecoration(
+                        color: AppColors.accent,
+                        shape: BoxShape.circle,
+                        boxShadow: [BoxShadow(color: AppColors.accent.withValues(alpha: 0.7), blurRadius: 8)],
+                      ),
                     ),
-                    backgroundColor: AppColors.surfaceContainerLowest
-                        .withValues(alpha: 0.2),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text('Tu campaña, en números', style: text.titleMedium?.copyWith(color: AppColors.textMuted)),
+                const SizedBox(height: 18),
+                _Pill(icon: Icons.verified_outlined, label: 'Cuaderno de campo digital'),
+                const Spacer(),
+                GlassCard(
+                  radius: 20,
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      AnimatedBuilder(
+                        animation: _pulse,
+                        builder: (context, _) {
+                          final activo = (_pulse.value * 3).floor();
+                          return Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              for (var i = 0; i < 3; i++)
+                                AnimatedContainer(
+                                  duration: const Duration(milliseconds: 200),
+                                  width: 10,
+                                  height: 10,
+                                  margin: const EdgeInsets.symmetric(horizontal: 5),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.accent.withValues(alpha: i == activo ? 1 : 0.3),
+                                    shape: BoxShape.circle,
+                                    boxShadow: i == activo
+                                        ? [BoxShadow(color: AppColors.accent.withValues(alpha: 0.6), blurRadius: 10)]
+                                        : null,
+                                  ),
+                                ),
+                            ],
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      Text(_status, style: text.bodySmall, textAlign: TextAlign.center),
+                      const SizedBox(height: 10),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(999),
+                        child: TweenAnimationBuilder<double>(
+                          tween: Tween(end: _progress),
+                          duration: const Duration(milliseconds: 500),
+                          curve: Curves.easeOutCubic,
+                          builder: (_, value, _) => Container(
+                            height: 4,
+                            color: AppColors.track,
+                            alignment: Alignment.centerLeft,
+                            child: FractionallySizedBox(
+                              widthFactor: value,
+                              child: DecoratedBox(decoration: BoxDecoration(gradient: AppColors.progressGradient)),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 16),
-                Text(
-                  'INICIALIZANDO SISTEMA',
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: AppColors.surfaceContainerLowest
-                            .withValues(alpha: 0.7),
-                        letterSpacing: 1.5,
-                      ),
-                ),
+                Text('Hecho para el campo peruano 🇵🇪', style: text.bodySmall),
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Emblema de la app: hoja en una tarjeta de vidrio con brillo.
+class AppEmblem extends StatelessWidget {
+  final double size;
+
+  const AppEmblem({super.key, this.size = 112});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        gradient: AppColors.cardGradient,
+        borderRadius: BorderRadius.circular(size * 0.25),
+        border: Border.all(color: AppColors.cardBorderStrong),
+        boxShadow: [BoxShadow(color: AppColors.palette.ctaGlow, blurRadius: size * 0.35, spreadRadius: -size * 0.04)],
+      ),
+      child: ShaderMask(
+        shaderCallback: (rect) => AppColors.ctaGradient.createShader(rect),
+        child: Icon(Icons.eco_rounded, size: size * 0.5, color: Colors.white),
+      ),
+    );
+  }
+}
+
+class _Pill extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _Pill({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.accentSoft,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: AppColors.cardBorder),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 15, color: AppColors.accent),
+          const SizedBox(width: 6),
+          Text(label, style: Theme.of(context).textTheme.labelMedium?.copyWith(color: AppColors.text, fontWeight: FontWeight.w600)),
         ],
       ),
     );
