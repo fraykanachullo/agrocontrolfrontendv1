@@ -14,6 +14,9 @@ class CampanaModel extends Campana {
     super.fechaCierre,
     super.balanceNetoFinal,
     super.createdAt,
+    super.terrenoId,
+    super.variedad,
+    super.fechaSiembra,
   });
 
   factory CampanaModel.fromJson(Map<String, dynamic> json) {
@@ -38,6 +41,11 @@ class CampanaModel extends Campana {
       createdAt: json['created_at'] != null
           ? DateTime.tryParse(json['created_at'] as String)
           : null,
+      terrenoId: (json['terreno_id'] as num?)?.toInt(),
+      variedad: json['variedad'] as String?,
+      fechaSiembra: json['fecha_siembra'] != null
+          ? DateTime.tryParse(json['fecha_siembra'] as String)
+          : null,
     );
   }
 
@@ -55,6 +63,9 @@ class CampanaModel extends Campana {
       'fecha_cierre': fechaCierre?.toIso8601String().substring(0, 10),
       'balance_neto_final': balanceNetoFinal,
       'created_at': createdAt?.toIso8601String(),
+      'terreno_id': terrenoId,
+      'variedad': variedad,
+      'fecha_siembra': fechaSiembra?.toIso8601String().substring(0, 10),
     };
   }
 

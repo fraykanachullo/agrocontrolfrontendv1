@@ -13,12 +13,15 @@ import '../../domain/entities/actividad.dart';
 /// Formularios del cuaderno: labor (RF-CUA-01), ingreso directo (RF-CUA-06)
 /// e incidencia (RF-CUA-08). Comparten estilo con el de gasto.
 
+/// Labor que marca el hito de siembra de la campaña.
+const kSiembraLabor = 'Siembra / trasplante';
+
 const _laborTypes = <(String, String, IconData)>[
   ('Deshierbe', 'Deshierbe', Icons.grass_rounded),
   ('Riego', 'Riego', Icons.water_drop_rounded),
   ('Fumigación', 'Fumigación', Icons.pest_control_rounded),
   ('Abonamiento', 'Abonamiento', Icons.science_rounded),
-  ('Siembra / trasplante', 'Siembra', Icons.spa_rounded),
+  (kSiembraLabor, 'Siembra', Icons.spa_rounded),
   ('Preparación de suelo', 'Preparación', Icons.agriculture_rounded),
   ('Surcado', 'Surcado', Icons.view_week_rounded),
   ('Poda / amarre', 'Poda / amarre', Icons.content_cut_rounded),
@@ -43,8 +46,17 @@ const _incidentTypes = <(String, String, IconData)>[
   ('Otra incidencia', 'Otra', Icons.more_horiz_rounded),
 ];
 
-Future<void> showLaborSheet(BuildContext context, {required int campanaId, required String campanaNombre, DateTime? date}) =>
-    showRecordSheet(context, _ActivitySheet(campanaId: campanaId, campanaNombre: campanaNombre, incident: false, date: date));
+Future<void> showLaborSheet(
+  BuildContext context, {
+  required int campanaId,
+  required String campanaNombre,
+  DateTime? date,
+  String? initialType,
+}) =>
+    showRecordSheet(
+      context,
+      _ActivitySheet(campanaId: campanaId, campanaNombre: campanaNombre, incident: false, date: date, initialType: initialType),
+    );
 
 Future<void> showIncidentSheet(BuildContext context, {required int campanaId, required String campanaNombre, DateTime? date}) =>
     showRecordSheet(context, _ActivitySheet(campanaId: campanaId, campanaNombre: campanaNombre, incident: true, date: date));
@@ -69,15 +81,16 @@ class _ActivitySheet extends ConsumerStatefulWidget {
   final String campanaNombre;
   final bool incident;
   final DateTime? date;
+  final String? initialType;
 
-  const _ActivitySheet({required this.campanaId, required this.campanaNombre, required this.incident, this.date});
+  const _ActivitySheet({required this.campanaId, required this.campanaNombre, required this.incident, this.date, this.initialType});
 
   @override
   ConsumerState<_ActivitySheet> createState() => _ActivitySheetState();
 }
 
 class _ActivitySheetState extends ConsumerState<_ActivitySheet> {
-  late String _type = (widget.incident ? _incidentTypes : _laborTypes).first.$1;
+  late String _type = widget.initialType ?? (widget.incident ? _incidentTypes : _laborTypes).first.$1;
   String _severity = 'Media';
   late DateTime _date = widget.date ?? DateTime.now();
   final _noteCtrl = TextEditingController();
@@ -98,6 +111,13 @@ class _ActivitySheetState extends ConsumerState<_ActivitySheet> {
     return note.isEmpty ? _type : '$_type · $note';
   }
 
+  /// La primera siembra registrada fija la fecha de siembra de la campaña.
+  bool get _marcaSiembra {
+    if (widget.incident || _type != kSiembraLabor) return false;
+    final campana = ref.read(campanaListProvider).campanas.where((c) => c.id == widget.campanaId).firstOrNull;
+    return campana != null && !campana.isSown;
+  }
+
   Future<void> _save() async {
     setState(() => _saving = true);
     final messenger = ScaffoldMessenger.of(context);
@@ -113,10 +133,16 @@ class _ActivitySheetState extends ConsumerState<_ActivitySheet> {
           rutaArchivo: _photo!.path,
         );
       }
+      final marcaSiembra = _marcaSiembra;
+      if (marcaSiembra) await ref.read(campanaListProvider.notifier).registrarSiembra(widget.campanaId, _date);
       ref.read(dashboardRefreshTrigger.notifier).update((s) => s + 1);
       HapticFeedback.mediumImpact();
       navigator.pop();
-      messenger.showSnackBar(SnackBar(content: Text(widget.incident ? 'Incidencia registrada' : 'Labor registrada')));
+      messenger.showSnackBar(SnackBar(
+        content: Text(widget.incident
+            ? 'Incidencia registrada'
+            : (marcaSiembra ? 'Siembra registrada: la campaña pasa a crecimiento' : 'Labor registrada')),
+      ));
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text('Error: $e')));
       if (mounted) setState(() => _saving = false);
@@ -187,7 +213,10 @@ class _ActivitySheetState extends ConsumerState<_ActivitySheet> {
           },
         ),
         const SizedBox(height: 18),
-        RecordSummary(text: _description().replaceFirst(kIncidentPrefix, 'Incidencia: ')),
+        RecordSummary(
+          text: _description().replaceFirst(kIncidentPrefix, 'Incidencia: ') +
+              (_marcaSiembra ? '. Esta fecha queda como la siembra de la campaña.' : ''),
+        ),
       ],
     );
   }

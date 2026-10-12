@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/providers/app_providers.dart';
+import '../../../../core/providers/despacho_aviso_provider.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/form_pieces.dart';
@@ -184,7 +185,9 @@ class _Summary extends StatelessWidget {
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
     final bultosPendientes = state.pendientes.fold<int>(0, (s, c) => s + c.cantidadUnidades);
-    final liquidado = state.entregadas.fold<double>(0, (s, c) => s + (c.montoNetoFinal ?? 0));
+    double neto(Iterable<Cosecha> l) => l.fold(0, (s, c) => s + (c.montoNetoFinal ?? 0));
+    final cobrado = neto(state.entregadas.where((c) => c.etapa == EtapaDespacho.cobrado));
+    final porCobrar = neto(state.entregadas.where((c) => c.etapa == EtapaDespacho.liquidado));
     final bultosVendidos = state.entregadas.fold<int>(0, (s, c) => s + c.cantidadUnidades);
 
     Widget stat(String label, String value, String caption, Color color) => Expanded(
@@ -212,14 +215,16 @@ class _Summary extends StatelessWidget {
           stat(
             'POR LIQUIDAR',
             '${state.pendientes.length}',
-            '${NumberFormat('#,##0', 'es_419').format(bultosPendientes)} bultos en camino',
+            '${NumberFormat('#,##0', 'es_419').format(bultosPendientes)} bultos sin liquidar',
             state.pendientes.isEmpty ? AppColors.text : AppColors.warning,
           ),
           Container(width: 1, height: 52, margin: const EdgeInsets.symmetric(horizontal: 14), color: AppColors.outlineVariant),
           stat(
             'COBRADO',
-            formatSoles(liquidado),
-            '${NumberFormat('#,##0', 'es_419').format(bultosVendidos)} bultos vendidos',
+            formatSoles(cobrado),
+            porCobrar > 0
+                ? '${formatSoles(porCobrar)} por cobrar'
+                : '${NumberFormat('#,##0', 'es_419').format(bultosVendidos)} bultos vendidos',
             AppColors.positive,
           ),
         ],
@@ -261,20 +266,21 @@ class _Segment extends StatelessWidget {
   }
 }
 
-class _ShipmentCard extends StatelessWidget {
+class _ShipmentCard extends ConsumerWidget {
   final Cosecha cosecha;
   final VoidCallback onTap;
 
   const _ShipmentCard({required this.cosecha, required this.onTap});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final text = Theme.of(context).textTheme;
     final c = cosecha;
-    final enCampo = c.tipoVenta == 'parcela';
+    final enCampo = c.enCampo;
     final fecha = DateTime.tryParse(c.fechaEnvio ?? '');
-    final pendiente = c.estado == 'pendiente' || c.estado == 'pendiente_de_liquidacion';
-    final dias = fecha == null ? null : DateTime.now().difference(fecha).inDays;
+    final pendiente = !c.isLiquidado;
+    final dias = c.diasSinNoticias;
+    final demorado = c.demorado(ref.watch(diasAvisoDespachoProvider));
     final color = enCampo ? AppColors.positive : (pendiente ? AppColors.warning : AppColors.accent);
     final envase = c.unidadEmpaque ?? 'bulto';
 
@@ -316,11 +322,14 @@ class _ShipmentCard extends StatelessWidget {
                 Row(
                   children: [
                     ShipmentStatusPill(cosecha: c),
-                    if (pendiente && dias != null) ...[
+                    if (dias != null) ...[
                       const SizedBox(width: 8),
-                      Text(
-                        '$dias día${dias == 1 ? '' : 's'} en camino',
-                        style: text.labelSmall?.copyWith(color: dias > 4 ? AppColors.warning : AppColors.textSubtle),
+                      Flexible(
+                        child: Text(
+                          '$dias día${dias == 1 ? '' : 's'} sin llegar',
+                          overflow: TextOverflow.ellipsis,
+                          style: text.labelSmall?.copyWith(color: demorado ? AppColors.error : AppColors.textSubtle),
+                        ),
                       ),
                     ],
                   ],
@@ -330,7 +339,13 @@ class _ShipmentCard extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           if (!pendiente && c.montoNetoFinal != null)
-            Text(formatSoles(c.montoNetoFinal!), style: AppTheme.display(fontSize: 15, color: AppColors.positive))
+            Text(
+              formatSoles(c.montoNetoFinal!),
+              style: AppTheme.display(
+                fontSize: 15,
+                color: c.etapa == EtapaDespacho.cobrado ? AppColors.positive : AppColors.warning,
+              ),
+            )
           else
             Icon(Icons.chevron_right_rounded, color: AppColors.textSubtle),
         ],

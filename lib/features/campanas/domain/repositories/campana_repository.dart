@@ -11,7 +11,12 @@ abstract class CampanaRepository {
     required DateTime fechaInicio,
     double? latitud,
     double? longitud,
+    int? terrenoId,
+    String? variedad,
   });
   Future<Campana> updateCampana(int id, {String? nombre, String? cultivo});
   Future<Campana> cerrarCampana(int id);
+
+  /// Guarda la fecha de siembra (hito registrado desde el cuaderno).
+  Future<void> registrarSiembra(int id, DateTime fecha);
 }

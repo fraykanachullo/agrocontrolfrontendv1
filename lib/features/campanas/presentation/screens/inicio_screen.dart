@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/providers/app_providers.dart';
+import '../../../../core/providers/despacho_aviso_provider.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
@@ -69,7 +70,6 @@ class _InicioScreenState extends ConsumerState<InicioScreen> {
     final stage = CampaignStage.of(
       campana,
       hasHarvests: cosechas.pendientes.isNotEmpty || cosechas.entregadas.isNotEmpty,
-      hasRecords: ((data?['total_gastos'] as double?) ?? 0) > 0,
     );
 
     return ListView(
@@ -101,7 +101,11 @@ class _InicioScreenState extends ConsumerState<InicioScreen> {
         const SectionHeader(title: 'Registro rápido de gastos'),
         _QuickExpenseGrid(onSelected: (categoria) => _openForm(campana, 'Gasto', categoria: categoria)),
         const SizedBox(height: 24),
-        _PendingShipments(campanaId: campana.id, pendientes: cosechas.pendientes),
+        _PendingShipments(
+          campanaId: campana.id,
+          pendientes: cosechas.pendientes,
+          diasAviso: ref.watch(diasAvisoDespachoProvider),
+        ),
         _TodayMovements(campanaId: campana.id),
       ],
     );
@@ -495,7 +499,11 @@ class _StageProgress extends StatelessWidget {
                 ),
               ),
               Text(
-                campana.isClosed ? 'Campaña cerrada' : 'Campaña en curso',
+                switch (campana.diasDesdeSiembra) {
+                  _ when campana.isClosed => 'Campaña cerrada',
+                  final int dias => 'Día $dias desde la siembra',
+                  null => 'Aún sin sembrar',
+                },
                 style: text.labelSmall,
               ),
             ],
@@ -539,6 +547,20 @@ class _StageProgress extends StatelessWidget {
                 ),
             ],
           ),
+          if (!campana.isSown && !campana.isClosed) ...[
+            const SizedBox(height: 10),
+            AgroActionButton(
+              label: '¿Ya sembraste? Registrar siembra',
+              icon: Icons.spa_rounded,
+              height: 44,
+              onPressed: () => showLaborSheet(
+                context,
+                campanaId: campana.id,
+                campanaNombre: campana.nombre,
+                initialType: kSiembraLabor,
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -645,8 +667,9 @@ class _QuickExpenseGrid extends StatelessWidget {
 class _PendingShipments extends StatelessWidget {
   final int campanaId;
   final List<Cosecha> pendientes;
+  final int diasAviso;
 
-  const _PendingShipments({required this.campanaId, required this.pendientes});
+  const _PendingShipments({required this.campanaId, required this.pendientes, required this.diasAviso});
 
   @override
   Widget build(BuildContext context) {
@@ -655,7 +678,9 @@ class _PendingShipments extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     final first = pendientes.first;
     final bultos = pendientes.fold<int>(0, (sum, c) => sum + c.cantidadUnidades);
-    final dias = _daysSince(first.fechaEnvio);
+    // El despacho que más tiempo lleva sin llegar al mercado.
+    final dias = pendientes.map((c) => c.diasSinNoticias).nonNulls.fold<int?>(null, (m, d) => m == null || d > m ? d : m);
+    final demorados = pendientes.where((c) => c.demorado(diasAviso)).length;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 24),
@@ -695,10 +720,12 @@ class _PendingShipments extends StatelessWidget {
                             style: text.titleSmall?.copyWith(fontWeight: FontWeight.w700),
                           ),
                           Text(
-                            pendientes.length == 1
-                                ? 'Esperando liquidación del mercado'
-                                : '${pendientes.length} despachos esperando liquidación',
-                            style: text.bodySmall,
+                            demorados > 0
+                                ? '$demorados demorado${demorados == 1 ? '' : 's'}: llama al comisionista'
+                                : (pendientes.length == 1
+                                    ? 'Esperando liquidación del mercado'
+                                    : '${pendientes.length} despachos esperando liquidación'),
+                            style: text.bodySmall?.copyWith(color: demorados > 0 ? AppColors.error : null),
                           ),
                         ],
                       ),
@@ -715,9 +742,9 @@ class _PendingShipments extends StatelessWidget {
                     Expanded(child: _Metric(label: 'Bultos enviados', value: _count.format(bultos))),
                     Expanded(
                       child: _Metric(
-                        label: 'En camino',
+                        label: 'Sin llegar',
                         value: dias == null ? '—' : '$dias día${dias == 1 ? '' : 's'}',
-                        highlight: (dias ?? 0) > 4,
+                        highlight: demorados > 0,
                       ),
                     ),
                   ],
@@ -728,11 +755,6 @@ class _PendingShipments extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  static int? _daysSince(String? fecha) {
-    final date = fecha == null ? null : DateTime.tryParse(fecha);
-    return date == null ? null : DateTime.now().difference(date).inDays;
   }
 }
 

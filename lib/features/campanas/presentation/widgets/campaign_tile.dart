@@ -24,7 +24,6 @@ class CampaignTile extends StatelessWidget {
     final stage = CampaignStage.of(
       campana,
       hasHarvests: (r?.cosechas ?? 0) > 0,
-      hasRecords: (r?.gastos ?? 0) > 0,
     );
     final dias = campana.fechaInicio == null ? null : DateTime.now().difference(campana.fechaInicio!).inDays;
     final conVentas = (r?.ingresos ?? 0) > 0;

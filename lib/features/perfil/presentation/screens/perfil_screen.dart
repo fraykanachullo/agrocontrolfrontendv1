@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/providers/app_providers.dart';
+import '../../../../core/providers/despacho_aviso_provider.dart';
 import '../../../../core/widgets/agro_control_app_bar.dart';
 
 class PerfilScreen extends ConsumerStatefulWidget {
@@ -14,7 +15,6 @@ class PerfilScreen extends ConsumerStatefulWidget {
 
 class _PerfilScreenState extends ConsumerState<PerfilScreen> {
   bool _darkMode = false;
-  String _unidad = 'Hectáreas (ha)';
 
   @override
   Widget build(BuildContext context) {
@@ -85,17 +85,17 @@ class _PerfilScreenState extends ConsumerState<PerfilScreen> {
             _buildSectionHeader(context, 'Configuración'),
             _buildMenuCard(context, [
               _MenuTile(
-                icon: Icons.straighten,
+                icon: Icons.local_shipping_outlined,
                 iconBg: AppColors.surfaceContainer,
                 iconColor: AppColors.onSurfaceVariant,
-                title: 'Cambiar Unidad',
+                title: 'Avisar despacho demorado',
                 trailing: Text(
-                  _unidad,
+                  'a los ${ref.watch(diasAvisoDespachoProvider)} días',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: AppColors.onSurfaceVariant,
                       ),
                 ),
-                onTap: () => _showUnitDialog(),
+                onTap: _showDiasAvisoDialog,
               ),
               _MenuTile(
                 icon: Icons.dark_mode,
@@ -306,26 +306,24 @@ class _PerfilScreenState extends ConsumerState<PerfilScreen> {
     );
   }
 
-  void _showUnitDialog() {
+  /// Días que un despacho puede ir en camino sin llegar antes de avisar.
+  void _showDiasAvisoDialog() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Unidad de medida'),
-        content: RadioGroup<String>(
-          groupValue: _unidad,
+        title: const Text('Avisar si un despacho no llega en'),
+        content: RadioGroup<int>(
+          groupValue: ref.read(diasAvisoDespachoProvider),
           onChanged: (v) {
-            setState(() => _unidad = v!);
+            ref.read(diasAvisoDespachoProvider.notifier).set(v!);
             Navigator.pop(context);
           },
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            children: ['Hectáreas (ha)', 'Topos', 'm²'].map((u) {
-              return RadioListTile<String>(
-                title: Text(u),
-                value: u,
-                activeColor: AppColors.primary,
-              );
-            }).toList(),
+            children: [
+              for (final d in opcionesDiasAviso)
+                RadioListTile<int>(title: Text('$d días'), value: d, activeColor: AppColors.primary),
+            ],
           ),
         ),
       ),

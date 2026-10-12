@@ -3,6 +3,19 @@ import 'dart:convert';
 import 'cosecha_clase.dart';
 import 'cosecha_detalle.dart';
 
+/// Ciclo de vida de un despacho al mercado. La venta en campo se vende y
+/// cobra en el momento: pasa directo a [cobrado].
+enum EtapaDespacho {
+  anotado('Anotado'),
+  enTransito('En camino'),
+  recibido('En el mercado'),
+  liquidado('Por cobrar'),
+  cobrado('Cobrado');
+
+  final String label;
+  const EtapaDespacho(this.label);
+}
+
 class Cosecha {
   final int? id;
   final int campanaId;
@@ -21,6 +34,15 @@ class Cosecha {
   final double? montoNetoFinal;
   final String? fechaEnvio;
   final String? fechaLiquidacion;
+
+  /// Salió el camión (en tránsito).
+  final String? fechaSalida;
+
+  /// El comisionista confirmó que llegó la carga al mercado.
+  final String? fechaRecepcion;
+
+  /// El dinero de la liquidación ya se recibió.
+  final String? fechaCobro;
   final String? createdAt;
   final bool isSynced;
   final List<CosechaClase> clases;
@@ -48,6 +70,9 @@ class Cosecha {
     this.montoNetoFinal,
     this.fechaEnvio,
     this.fechaLiquidacion,
+    this.fechaSalida,
+    this.fechaRecepcion,
+    this.fechaCobro,
     this.createdAt,
     this.isSynced = false,
     this.clases = const [],
@@ -63,6 +88,28 @@ class Cosecha {
       return const {};
     }
   }
+
+  bool get enCampo => tipoVenta == 'parcela';
+  bool get isLiquidado => estado != 'pendiente' && estado != 'pendiente_de_liquidacion';
+
+  EtapaDespacho get etapa {
+    if (enCampo || fechaCobro != null) return EtapaDespacho.cobrado;
+    if (isLiquidado) return EtapaDespacho.liquidado;
+    if (fechaRecepcion != null) return EtapaDespacho.recibido;
+    if (fechaSalida != null) return EtapaDespacho.enTransito;
+    return EtapaDespacho.anotado;
+  }
+
+  /// Días que la carga lleva sin noticias del mercado (desde que salió, o
+  /// desde que se anotó si aún no se marcó la salida). Null si ya llegó.
+  int? get diasSinNoticias {
+    if (etapa.index >= EtapaDespacho.recibido.index) return null;
+    final desde = DateTime.tryParse(fechaSalida ?? fechaEnvio ?? '');
+    return desde == null ? null : DateTime.now().difference(desde).inDays;
+  }
+
+  /// Avisar si pasa más de [diasAviso] días en camino sin llegar al mercado.
+  bool demorado(int diasAviso) => (diasSinNoticias ?? 0) > diasAviso;
 
   /// Unidad de cálculo de venta efectiva (fallback a por_kilo).
   String get tipoCalculoEfectivo => tipoCalculoVenta ?? 'por_kilo';
@@ -144,6 +191,9 @@ class Cosecha {
       montoNetoFinal: (map['monto_neto_final'] as num?)?.toDouble(),
       fechaEnvio: map['fecha_envio'] as String?,
       fechaLiquidacion: map['fecha_liquidacion'] as String?,
+      fechaSalida: map['fecha_salida'] as String?,
+      fechaRecepcion: map['fecha_recepcion'] as String?,
+      fechaCobro: map['fecha_cobro'] as String?,
       liquidacion: decodeLiquidacion(map['liquidacion_json']),
       createdAt: map['created_at'] as String?,
       isSynced: (map['is_synced'] as int? ?? 0) == 1,
@@ -170,6 +220,9 @@ class Cosecha {
       'monto_neto_final': montoNetoFinal,
       'fecha_envio': fechaEnvio,
       'fecha_liquidacion': fechaLiquidacion,
+      'fecha_salida': fechaSalida,
+      'fecha_recepcion': fechaRecepcion,
+      'fecha_cobro': fechaCobro,
       'is_synced': isSynced ? 1 : 0,
     };
   }

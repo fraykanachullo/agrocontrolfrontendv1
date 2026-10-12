@@ -16,7 +16,7 @@ class AppDatabase {
 
     return await openDatabase(
       path,
-      version: 8,
+      version: 10,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -56,6 +56,60 @@ class AppDatabase {
     if (oldVersion < 8) {
       // Detalle de la liquidación: vendidos por calidad, descuentos, forma de cobro y comprobante.
       await db.execute('ALTER TABLE cosechas ADD COLUMN liquidacion_json TEXT');
+    }
+    if (oldVersion < 9) {
+      await _addTerrenos(db);
+    }
+    if (oldVersion < 10) {
+      await _addCicloDespacho(db);
+    }
+  }
+
+  /// v10: ciclo del despacho (anotado → en tránsito → recibido → liquidado →
+  /// cobrado). Cada paso guarda su fecha; `estado` sigue siendo pendiente o
+  /// entregado (liquidado) para el servidor. Los despachos que ya existían
+  /// salieron el día del envío, y los liquidados se dan por cobrados, como
+  /// se mostraban antes.
+  static Future<void> _addCicloDespacho(Database db) async {
+    for (final col in ['fecha_salida TEXT', 'fecha_recepcion TEXT', 'fecha_cobro TEXT']) {
+      await db.execute('ALTER TABLE cosechas ADD COLUMN $col');
+    }
+    await db.execute("UPDATE cosechas SET fecha_salida = fecha_envio WHERE tipo_venta != 'parcela'");
+    await db.execute("UPDATE cosechas SET fecha_cobro = COALESCE(fecha_liquidacion, fecha_envio) WHERE estado = 'entregado'");
+  }
+
+  /// v9: el terreno vive más que la campaña. Cada campaña existente recibe su
+  /// propio terreno (con su área y ubicación), y la fecha de siembra se toma de
+  /// la primera labor de siembra del cuaderno, si la hay.
+  static Future<void> _addTerrenos(Database db) async {
+    await _createTerrenosTable(db);
+    for (final col in ['terreno_id INTEGER', 'variedad TEXT', 'fecha_siembra TEXT']) {
+      await db.execute('ALTER TABLE campanas ADD COLUMN $col');
+    }
+    final campanas = await db.query('campanas');
+    for (final c in campanas) {
+      final now = DateTime.now().toIso8601String();
+      final terrenoId = await db.insert('terrenos', {
+        'user_id': c['user_id'],
+        'nombre': 'Terreno de ${c['nombre']}',
+        'tenencia': 'propio',
+        'area': c['extension'] ?? 0,
+        'unidad': c['tipo_extension'] ?? 'hectarea',
+        'latitud': c['latitud'],
+        'longitud': c['longitud'],
+        'created_at': now,
+        'updated_at': now,
+      });
+      final siembra = await db.rawQuery(
+        "SELECT MIN(fecha) AS f FROM actividades WHERE campana_id = ? AND descripcion LIKE 'Siembra%'",
+        [c['id']],
+      );
+      await db.update(
+        'campanas',
+        {'terreno_id': terrenoId, 'fecha_siembra': siembra.first['f']},
+        where: 'id = ?',
+        whereArgs: [c['id']],
+      );
     }
   }
 
@@ -111,6 +165,9 @@ class AppDatabase {
         fecha_inicio TEXT,
         fecha_cierre TEXT,
         balance_neto_final REAL,
+        terreno_id INTEGER,
+        variedad TEXT,
+        fecha_siembra TEXT,
         created_at TEXT NOT NULL,
         is_synced INTEGER DEFAULT 0,
         uuid_local TEXT,
@@ -168,6 +225,9 @@ class AppDatabase {
         monto_neto_final REAL,
         fecha_envio TEXT,
         fecha_liquidacion TEXT,
+        fecha_salida TEXT,
+        fecha_recepcion TEXT,
+        fecha_cobro TEXT,
         liquidacion_json TEXT,
         created_at TEXT NOT NULL,
         is_synced INTEGER DEFAULT 0,
@@ -176,11 +236,34 @@ class AppDatabase {
       )
     ''');
 
+    await _createTerrenosTable(db);
     await _createSyncQueueTable(db);
     await _createEvidenciasTable(db);
     await _createCosechaClasesTable(db);
     await _createCosechaDetallesTable(db);
     await _createPlanillasTable(db);
+  }
+
+  /// Terreno: propio o alquilado, con su área, unidad (no cambia: RN-02) y ubicación GPS.
+  static Future<void> _createTerrenosTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS terrenos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        nombre TEXT NOT NULL,
+        tenencia TEXT NOT NULL DEFAULT 'propio',
+        area REAL NOT NULL DEFAULT 0,
+        unidad TEXT NOT NULL DEFAULT 'hectarea',
+        latitud REAL,
+        longitud REAL,
+        referencia TEXT,
+        notas TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        is_synced INTEGER DEFAULT 0,
+        uuid_local TEXT
+      )
+    ''');
   }
 
   static Future<void> _createSyncQueueTable(Database db) async {
@@ -299,8 +382,30 @@ class AppDatabase {
       'password': 'password123',
     });
 
+    final terrenoPampa = await db.insert('terrenos', {
+      'user_id': 2,
+      'nombre': 'La Pampa',
+      'tenencia': 'propio',
+      'area': 2.5,
+      'unidad': 'hectarea',
+      'created_at': now,
+      'updated_at': now,
+    });
+
+    final terrenoAlquilado = await db.insert('terrenos', {
+      'user_id': 2,
+      'nombre': 'Chacra del canal',
+      'tenencia': 'alquilado',
+      'area': 1.8,
+      'unidad': 'hectarea',
+      'created_at': now,
+      'updated_at': now,
+    });
+
     await db.insert('campanas', {
       'user_id': 2,
+      'terreno_id': terrenoPampa,
+      'fecha_siembra': '2025-01-25',
       'nombre': 'Tomate 2025',
       'cultivo': 'Tomate',
       'extension': 2.5,
@@ -314,6 +419,7 @@ class AppDatabase {
 
     await db.insert('campanas', {
       'user_id': 2,
+      'terreno_id': terrenoAlquilado,
       'nombre': 'Cebolla 2025',
       'cultivo': 'Cebolla',
       'extension': 1.8,
@@ -327,6 +433,8 @@ class AppDatabase {
 
     await db.insert('campanas', {
       'user_id': 2,
+      'terreno_id': terrenoPampa,
+      'fecha_siembra': '2024-06-10',
       'nombre': 'Papa 2024',
       'cultivo': 'Papa',
       'extension': 3.0,
@@ -425,6 +533,9 @@ class AppDatabase {
           .subtract(const Duration(days: 2))
           .toIso8601String(),
       'fecha_liquidacion': DateTime.now()
+          .subtract(const Duration(days: 1))
+          .toIso8601String(),
+      'fecha_cobro': DateTime.now()
           .subtract(const Duration(days: 1))
           .toIso8601String(),
       'created_at': now,
