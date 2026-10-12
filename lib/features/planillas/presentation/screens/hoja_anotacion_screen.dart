@@ -30,9 +30,6 @@ const _calidadesTomate = <Calidad>[
 ];
 const _filasPorDefecto = 16;
 
-/// Bultos habituales por fila del camión: por encima solo se avisa (RF-COS-09).
-const _maxPorFila = 44;
-
 const _mercadosSugeridos = ['Lima', 'Arequipa', 'Santa Anita', 'Río Seco'];
 
 /// Hoja de anotación de un despacho (RF-COS-06 a RF-COS-12): cuadrícula
@@ -111,10 +108,6 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
   int _totalFila(int f) => _celdas[f].fold(0, (s, v) => s + v);
   int _totalCol(int c) => _celdas.fold(0, (s, fila) => s + fila[c]);
   int get _total => _celdas.fold(0, (s, fila) => s + fila.fold(0, (a, v) => a + v));
-  List<int> get _filasExcedidas => [
-        for (var f = 0; f < _celdas.length; f++)
-          if (_totalFila(f) > _maxPorFila) f,
-      ];
 
   // ── Edición ──
 
@@ -479,7 +472,6 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
               children: [
                 _contexto(),
-                if (_filasExcedidas.isNotEmpty) ...[const SizedBox(height: 12), _alerta()],
                 if (_enviada) ...[const SizedBox(height: 12), _avisoEnviada()],
                 const SizedBox(height: 14),
                 if (!_enviada) _barraAcciones(),
@@ -635,42 +627,6 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
     );
   }
 
-  Widget _alerta() {
-    final text = Theme.of(context).textTheme;
-    final filas = _filasExcedidas;
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.warning.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.warning.withValues(alpha: 0.35)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.warning_amber_rounded, color: AppColors.warning),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  filas.length == 1 ? 'Revisa la fila ${filas.first + 1}' : 'Revisa ${filas.length} filas',
-                  style: text.titleSmall?.copyWith(color: AppColors.warning),
-                ),
-                Text(
-                  '${filas.map((f) => 'Fila ${f + 1}: ${_totalFila(f)}').join(' · ')} '
-                  '(lo habitual son $_maxPorFila por fila). Puede estar bien; solo verifica.',
-                  style: text.bodySmall?.copyWith(color: AppColors.text),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _avisoEnviada() {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -760,8 +716,8 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
   }
 
   Widget _filaWidget(int f, double anchoFila, double anchoCelda, double anchoTotal) {
+    // El total por fila es libre (depende del camión): solo ayuda a revisar el orden.
     final total = _totalFila(f);
-    final excede = total > _maxPorFila;
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: Row(
@@ -796,12 +752,12 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
               margin: const EdgeInsets.only(left: 4),
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: excede ? AppColors.warning.withValues(alpha: 0.16) : AppColors.accent.withValues(alpha: 0.08),
+                color: AppColors.accent.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Text(
                 total == 0 ? '–' : '$total',
-                style: AppTheme.display(fontSize: 15, color: excede ? AppColors.warning : AppColors.text),
+                style: AppTheme.display(fontSize: 15, color: AppColors.text),
               ),
             ),
           ),
