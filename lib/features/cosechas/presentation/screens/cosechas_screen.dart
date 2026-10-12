@@ -1,12 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../../core/theme/app_colors.dart';
+import 'package:intl/intl.dart';
 import '../../../../core/providers/app_providers.dart';
-import '../../../planillas/presentation/screens/planillas_screen.dart';
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/form_pieces.dart';
+import '../../../../core/widgets/glass.dart';
 import '../../../planillas/presentation/planilla_routes.dart';
-import '../../../planillas/presentation/widgets/planilla_template_sheet.dart';
-import '../widgets/pending_shipment_card.dart';
+import '../../../planillas/presentation/screens/planillas_screen.dart';
+import '../../domain/entities/cosecha.dart';
+import '../widgets/sale_sheets.dart';
+import 'despacho_screen.dart';
 
+/// Cosechas y ventas (M4): despachos por liquidar, liquidados y ventas en campo.
 class CosechasScreen extends ConsumerStatefulWidget {
   final String campaignId;
 
@@ -17,362 +23,317 @@ class CosechasScreen extends ConsumerStatefulWidget {
 }
 
 class _CosechasScreenState extends ConsumerState<CosechasScreen> {
-  int _selectedTab = 0;
+  bool _showPending = true;
+
+  int get _campanaId => int.tryParse(widget.campaignId) ?? 0;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final campanaId = int.tryParse(widget.campaignId);
-      if (campanaId != null) {
-        ref.read(cosechasProvider.notifier).loadData(campanaId);
-      }
-    });
+    Future.microtask(_reload);
+  }
+
+  void _reload() {
+    ref.read(cosechasProvider.notifier).loadData(_campanaId);
+    ref.read(planillasProvider.notifier).loadData(_campanaId);
+  }
+
+  Future<void> _nuevaVenta() async {
+    final mode = await showSaleModePicker(context);
+    if (mode == null || !mounted) return;
+    final campana = ref.read(activeCampanaProvider);
+    final nombre = campana?.nombre ?? '';
+    switch (mode) {
+      case SaleMode.despachoConHoja:
+        await openPlanilla(
+          context,
+          campanaId: _campanaId,
+          cultivo: campana?.cultivo ?? 'Tomate',
+          tipo: 'matricial',
+          numeroHoja: ref.read(planillasProvider).planillas.length + 1,
+        );
+      case SaleMode.ventaEnCampo:
+        await showFieldSaleSheet(context, campanaId: _campanaId, campanaNombre: nombre);
+      case SaleMode.despachoLibre:
+        await showFreeDispatchSheet(context, campanaId: _campanaId, campanaNombre: nombre);
+    }
+    if (mounted) _reload();
+  }
+
+  Future<void> _abrir(Cosecha c) async {
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => DespachoScreen(cosecha: c)));
+    if (mounted) _reload();
   }
 
   @override
   Widget build(BuildContext context) {
-    final campanaId = int.tryParse(widget.campaignId) ?? 0;
     final cosechas = ref.watch(cosechasProvider);
-    final cultivo = ref.watch(activeCampanaProvider)?.cultivo ?? 'papa';
-    final nPlanillas = ref.watch(planillasProvider).planillas.length;
+    final nHojas = ref.watch(planillasProvider).planillas.length;
+    final lista = _showPending ? cosechas.pendientes : cosechas.entregadas;
 
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _crearPlanilla(campanaId, cultivo),
-        backgroundColor: AppColors.primary,
-        foregroundColor: AppColors.onPrimary,
-        icon: const Icon(Icons.add),
-        label: const Text('Crear Note / Planilla'),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Cosechas y Despachos',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-            const SizedBox(height: 16),
-
-            _buildPlanillasTile(campanaId, cultivo, nPlanillas),
-            const SizedBox(height: 16),
-
-            _buildTabs(),
-            const SizedBox(height: 24),
-
-            if (_selectedTab == 0) ...[
-              PendingShipmentCard(
-                pendientes: cosechas.pendientes,
-                campanaId: campanaId,
-                cultivo: cultivo,
-              ),
-            ] else ...[
-              if (cosechas.entregadas.isEmpty)
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(32),
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceContainerLowest,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    children: [
-                      Icon(
-                        Icons.check_circle_outline,
-                        size: 48,
-                        color: AppColors.outlineVariant,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Sin despachos entregados',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: AppColors.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-              else
-                ...cosechas.entregadas.map(
-                  (c) => Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: AppColors.surfaceContainerLowest,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: AppColors.primary.withValues(alpha: 0.3),
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                width: 40,
-                                height: 40,
-                                decoration: BoxDecoration(
-                                  color: AppColors.primaryContainer,
-                                  shape: BoxShape.circle,
-                                ),
-                                child: Icon(
-                                  Icons.check,
-                                  size: 20,
-                                  color: AppColors.primary,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      '${c.cantidadUnidades} ${c.unidadEmpaque ?? (c.tipoCalculoEfectivo == "por_unidad" ? "javas" : "sacos")}',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodyLarge
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                    ),
-                                    Text(
-                                      '${c.mercadoDestino} • ${c.conductor}',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodySmall
-                                          ?.copyWith(
-                                            color: AppColors.onSurfaceVariant,
-                                          ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              if (c.montoNetoFinal != null)
-                                Text(
-                                  'S/${c.montoNetoFinal!.toStringAsFixed(2)}',
-                                  style: Theme.of(context).textTheme.bodyMedium
-                                      ?.copyWith(
-                                        color: AppColors.primary,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                ),
-                            ],
-                          ),
-                          if (c.clases.isNotEmpty) ...[
-                            const SizedBox(height: 12),
-                            Container(
-                              height: 1,
-                              color: AppColors.surfaceVariant,
-                            ),
-                            const SizedBox(height: 8),
-                            ...c.clases.map((cl) {
-                              final nombre = cl.clase == 'sacos'
-                                  ? 'Sacos de malla'
-                                  : cl.clase;
-                              final detalle = cl.pesoKg != null
-                                  ? '${cl.cantidad.toInt()} sacos × ${cl.pesoKg!.toStringAsFixed(1)}kg × S/${cl.precioUnitario.toStringAsFixed(2)}'
-                                  : '${cl.cantidad.toInt()} javas × S/${cl.precioUnitario.toStringAsFixed(2)}';
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 4),
-                                child: Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        '$nombre: $detalle',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodySmall
-                                            ?.copyWith(
-                                              color: AppColors.onSurfaceVariant,
-                                            ),
-                                      ),
-                                    ),
-                                    Text(
-                                      'S/${cl.subtotal.toStringAsFixed(2)}',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodySmall
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }),
-                            if (c.descuentosLogistica != null &&
-                                c.descuentosLogistica! > 0)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 4),
-                                child: Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      'Descuento flete',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodySmall
-                                          ?.copyWith(color: AppColors.error),
-                                    ),
-                                    Text(
-                                      '-S/${c.descuentosLogistica!.toStringAsFixed(2)}',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodySmall
-                                          ?.copyWith(color: AppColors.error),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ],
+    return ListView(
+      padding: EdgeInsets.fromLTRB(20, 4, 20, 24 + MediaQuery.paddingOf(context).bottom),
+      children: [
+        _Summary(state: cosechas),
+        const SizedBox(height: 14),
+        AgroActionButton(
+          label: 'Nueva venta o despacho',
+          icon: Icons.add_circle_rounded,
+          primary: true,
+          height: 56,
+          onPressed: _nuevaVenta,
         ),
-      ),
-    );
-  }
-
-  Widget _buildPlanillasTile(int campanaId, String cultivo, int nPlanillas) {
-    return Material(
-      color: AppColors.card,
-      borderRadius: BorderRadius.circular(14),
-      elevation: 1,
-      shadowColor: Colors.black.withValues(alpha: 0.15),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: () => _verPlanillas(campanaId, cultivo),
-        child: Container(
+        const SizedBox(height: 10),
+        GlassCard(
+          radius: 18,
           padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: AppColors.primary.withValues(alpha: 0.35),
-            ),
-          ),
+          onTap: () async {
+            await Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => PlanillasScreen(
+                  campaignId: widget.campaignId,
+                  cultivo: ref.read(activeCampanaProvider)?.cultivo ?? 'Tomate',
+                ),
+              ),
+            );
+            if (mounted) _reload();
+          },
           child: Row(
             children: [
               Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceContainerLowest,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  Icons.description_outlined,
-                  color: AppColors.primary,
-                  size: 24,
-                ),
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(color: AppColors.accentSoft, borderRadius: BorderRadius.circular(12)),
+                child: Icon(Icons.grid_on_rounded, color: AppColors.accent, size: 22),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Text('Hojas de anotación', style: Theme.of(context).textTheme.titleSmall),
                     Text(
-                      'Notas / Planillas de Carga',
-                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      nPlanillas == 0
-                          ? 'Digitalice la planilla manuscrita de campo'
-                          : '$nPlanillas hoja(s) de carga registradas · Abrir',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppColors.onSurfaceVariant,
-                      ),
+                      nHojas == 0 ? 'Aún no hay hojas' : '$nHojas hoja${nHojas == 1 ? '' : 's'} registrada${nHojas == 1 ? '' : 's'}',
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
                 ),
               ),
-              const SizedBox(width: 8),
-              Icon(Icons.chevron_right, color: AppColors.outline),
+              Icon(Icons.chevron_right_rounded, color: AppColors.textSubtle),
             ],
           ),
         ),
-      ),
+        const SizedBox(height: 22),
+        Row(
+          children: [
+            Expanded(
+              child: _Segment(
+                label: 'Por liquidar',
+                count: cosechas.pendientes.length,
+                selected: _showPending,
+                onTap: () => setState(() => _showPending = true),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _Segment(
+                label: 'Liquidados',
+                count: cosechas.entregadas.length,
+                selected: !_showPending,
+                onTap: () => setState(() => _showPending = false),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        if (cosechas.isLoading && lista.isEmpty)
+          const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()))
+        else if (lista.isEmpty)
+          GlassCard(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              children: [
+                Icon(_showPending ? Icons.local_shipping_outlined : Icons.task_alt_rounded, color: AppColors.textSubtle, size: 32),
+                const SizedBox(height: 8),
+                Text(
+                  _showPending ? 'No hay despachos por liquidar' : 'Aún no hay ventas liquidadas',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 2),
+                Text('Usa "Nueva venta o despacho"', style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
+          )
+        else
+          for (final c in lista)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _ShipmentCard(cosecha: c, onTap: () => _abrir(c)),
+            ),
+      ],
     );
   }
+}
 
-  Future<void> _crearPlanilla(int campanaId, String cultivo) async {
-    final tipo = await showPlanillaTemplatePicker(context);
-    if (tipo == null || !mounted) return;
-    final numero = ref.read(planillasProvider).planillas.length + 1;
-    await openPlanilla(
-      context,
-      campanaId: campanaId,
-      cultivo: cultivo,
-      tipo: tipo,
-      numeroHoja: numero,
-    );
-  }
+class _Summary extends StatelessWidget {
+  final CosechasState state;
 
-  void _verPlanillas(int campanaId, String cultivo) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) =>
-            PlanillasScreen(campaignId: widget.campaignId, cultivo: cultivo),
-      ),
-    );
-  }
+  const _Summary({required this.state});
 
-  Widget _buildTabs() {
-    return Container(
-      decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: AppColors.outlineVariant)),
-      ),
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final bultosPendientes = state.pendientes.fold<int>(0, (s, c) => s + c.cantidadUnidades);
+    final liquidado = state.entregadas.fold<double>(0, (s, c) => s + (c.montoNetoFinal ?? 0));
+    final bultosVendidos = state.entregadas.fold<int>(0, (s, c) => s + c.cantidadUnidades);
+
+    Widget stat(String label, String value, String caption, Color color) => Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: text.labelSmall?.copyWith(letterSpacing: 1.1, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 4),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(value, style: AppTheme.display(fontSize: 22, color: color)),
+              ),
+              Text(caption, style: text.labelSmall),
+            ],
+          ),
+        );
+
+    return GlassCard(
+      highlight: true,
+      radius: 22,
+      padding: const EdgeInsets.all(16),
       child: Row(
         children: [
-          _buildTab(0, 'Envíos Pendientes'),
-          _buildTab(1, 'Liquidados'),
+          stat(
+            'POR LIQUIDAR',
+            '${state.pendientes.length}',
+            '${NumberFormat('#,##0', 'es_419').format(bultosPendientes)} bultos en camino',
+            state.pendientes.isEmpty ? AppColors.text : AppColors.warning,
+          ),
+          Container(width: 1, height: 52, margin: const EdgeInsets.symmetric(horizontal: 14), color: AppColors.outlineVariant),
+          stat(
+            'COBRADO',
+            formatSoles(liquidado),
+            '${NumberFormat('#,##0', 'es_419').format(bultosVendidos)} bultos vendidos',
+            AppColors.positive,
+          ),
         ],
       ),
     );
   }
+}
 
-  Widget _buildTab(int index, String label) {
-    final isSelected = _selectedTab == index;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => setState(() => _selectedTab = index),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          decoration: BoxDecoration(
-            border: Border(
-              bottom: BorderSide(
-                color: isSelected ? AppColors.primary : Colors.transparent,
-                width: 2,
-              ),
-            ),
-          ),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              color: isSelected
-                  ? AppColors.primary
-                  : AppColors.onSurfaceVariant,
-              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-            ),
-          ),
+class _Segment extends StatelessWidget {
+  final String label;
+  final int count;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _Segment({required this.label, required this.count, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        height: 44,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected ? AppColors.accent.withValues(alpha: 0.14) : AppColors.accentSoft,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: selected ? AppColors.accent : AppColors.cardBorder),
         ),
+        child: Text(
+          '$label ($count)',
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: selected ? AppColors.accent : AppColors.textMuted,
+                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+              ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ShipmentCard extends StatelessWidget {
+  final Cosecha cosecha;
+  final VoidCallback onTap;
+
+  const _ShipmentCard({required this.cosecha, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final c = cosecha;
+    final enCampo = c.tipoVenta == 'parcela';
+    final fecha = DateTime.tryParse(c.fechaEnvio ?? '');
+    final pendiente = c.estado == 'pendiente' || c.estado == 'pendiente_de_liquidacion';
+    final dias = fecha == null ? null : DateTime.now().difference(fecha).inDays;
+    final color = enCampo ? AppColors.positive : (pendiente ? AppColors.warning : AppColors.accent);
+    final envase = c.unidadEmpaque ?? 'bulto';
+
+    return GlassCard(
+      radius: 20,
+      padding: const EdgeInsets.all(14),
+      onTap: onTap,
+      child: Row(
+        children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(color: color.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(14)),
+            child: Icon(enCampo ? Icons.scale_rounded : Icons.local_shipping_rounded, color: color),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  enCampo
+                      ? 'Venta en campo${c.conductor.isEmpty ? '' : ' · ${c.conductor}'}'
+                      : 'Despacho a ${c.mercadoDestino}',
+                  style: text.titleSmall,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  [
+                    if (fecha != null) DateFormat('EEE d MMM', 'es').format(fecha),
+                    '${c.cantidadUnidades} ${envase}s',
+                    if (c.detalles.isNotEmpty) 'con hoja',
+                  ].join(' · '),
+                  style: text.bodySmall,
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    ShipmentStatusPill(cosecha: c),
+                    if (pendiente && dias != null) ...[
+                      const SizedBox(width: 8),
+                      Text(
+                        '$dias día${dias == 1 ? '' : 's'} en camino',
+                        style: text.labelSmall?.copyWith(color: dias > 4 ? AppColors.warning : AppColors.textSubtle),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (!pendiente && c.montoNetoFinal != null)
+            Text(formatSoles(c.montoNetoFinal!), style: AppTheme.display(fontSize: 15, color: AppColors.positive))
+          else
+            Icon(Icons.chevron_right_rounded, color: AppColors.textSubtle),
+        ],
       ),
     );
   }

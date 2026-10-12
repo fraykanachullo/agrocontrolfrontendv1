@@ -16,7 +16,7 @@ class AppDatabase {
 
     return await openDatabase(
       path,
-      version: 6,
+      version: 8,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -48,6 +48,14 @@ class AppDatabase {
     }
     if (oldVersion < 6) {
       await _createPlanillasTable(db);
+    }
+    if (oldVersion < 7) {
+      // Etapa del cultivo del gasto (Preparación, Siembra, Mantenimiento, Cosecha).
+      await db.execute('ALTER TABLE transacciones ADD COLUMN etapa TEXT');
+    }
+    if (oldVersion < 8) {
+      // Detalle de la liquidación: vendidos por calidad, descuentos, forma de cobro y comprobante.
+      await db.execute('ALTER TABLE cosechas ADD COLUMN liquidacion_json TEXT');
     }
   }
 
@@ -133,6 +141,7 @@ class AppDatabase {
         descripcion TEXT,
         fecha TEXT NOT NULL,
         estado_pago TEXT DEFAULT 'pagado',
+        etapa TEXT,
         created_at TEXT NOT NULL,
         is_synced INTEGER DEFAULT 0,
         uuid_local TEXT,
@@ -159,6 +168,7 @@ class AppDatabase {
         monto_neto_final REAL,
         fecha_envio TEXT,
         fecha_liquidacion TEXT,
+        liquidacion_json TEXT,
         created_at TEXT NOT NULL,
         is_synced INTEGER DEFAULT 0,
         uuid_local TEXT,

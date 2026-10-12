@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -375,6 +376,41 @@ final gastosPorCategoriaProvider = FutureProvider<List<Map<String, dynamic>>>((
   return await localDs.getGastosPorCategoria(campanaId);
 });
 
+/// Balance de una campaña para listados (selector de campañas).
+class CampanaResumen {
+  final double gastos;
+  final double ingresos;
+  final int cosechas;
+  final int porLiquidar;
+
+  const CampanaResumen({required this.gastos, required this.ingresos, required this.cosechas, required this.porLiquidar});
+
+  double get utilidad => ingresos - gastos;
+  double? get rentabilidad => gastos > 0 ? utilidad / gastos * 100 : null;
+}
+
+final campanaResumenesProvider = FutureProvider<Map<int, CampanaResumen>>((ref) async {
+  ref.watch(dashboardRefreshTrigger);
+  ref.watch(campanaListProvider);
+  final rows = await ref.read(campanaLocalDatasourceProvider).getResumenCampanas();
+  return {
+    for (final r in rows)
+      r['campana_id'] as int: CampanaResumen(
+        gastos: (r['gastos'] as num).toDouble(),
+        ingresos: (r['ingresos_directos'] as num).toDouble() + (r['ventas'] as num).toDouble(),
+        cosechas: r['cosechas'] as int,
+        porLiquidar: r['por_liquidar'] as int,
+      ),
+  };
+});
+
+final gastosPorEtapaProvider = FutureProvider<List<Map<String, dynamic>>>((ref) async {
+  ref.watch(dashboardRefreshTrigger);
+  final campanaId = ref.watch(activeCampanaIdProvider);
+  if (campanaId == null) return [];
+  return ref.watch(campanaLocalDatasourceProvider).getGastosPorEtapa(campanaId);
+});
+
 // ── Cuaderno Providers (Actividades + Transacciones) ──
 
 class CuadernoState {
@@ -456,6 +492,7 @@ class CuadernoNotifier extends StateNotifier<CuadernoState> {
     required String descripcion,
     required String fecha,
     String estadoPago = 'pendiente',
+    String? etapa,
   }) async {
     final uuidLocal = SyncQueueService.generateUuid();
     final id = await _localDatasource.insertTransaccion({
@@ -466,6 +503,7 @@ class CuadernoNotifier extends StateNotifier<CuadernoState> {
       'descripcion': descripcion,
       'fecha': fecha,
       'estado_pago': estadoPago,
+      'etapa': etapa,
       'created_at': DateTime.now().toIso8601String(),
       'is_synced': 0,
       'uuid_local': uuidLocal,
@@ -481,6 +519,7 @@ class CuadernoNotifier extends StateNotifier<CuadernoState> {
         'descripcion': descripcion,
         'fecha': fecha,
         'estado_pago': estadoPago,
+        'etapa': etapa,
       },
     );
     await loadData(campanaId);
@@ -559,6 +598,7 @@ class CosechasNotifier extends StateNotifier<CosechasState> {
               montoNetoFinal: cosecha.montoNetoFinal,
               fechaEnvio: cosecha.fechaEnvio,
               fechaLiquidacion: cosecha.fechaLiquidacion,
+              liquidacion: cosecha.liquidacion,
               createdAt: cosecha.createdAt,
               isSynced: cosecha.isSynced,
               clases: clases,
@@ -590,7 +630,8 @@ class CosechasNotifier extends StateNotifier<CosechasState> {
     }
   }
 
-  Future<void> addCosecha(
+  /// Registra una venta o despacho y devuelve su id local.
+  Future<int> addCosecha(
     int campanaId, {
     required String tipoVenta,
     required int cantidadUnidades,
@@ -670,6 +711,7 @@ class CosechasNotifier extends StateNotifier<CosechasState> {
       },
     );
     await loadData(campanaId);
+    return id;
   }
 
   Future<void> liquidarCosecha(
@@ -678,6 +720,10 @@ class CosechasNotifier extends StateNotifier<CosechasState> {
     required List<Map<String, dynamic>> detallesPrecios,
     required double descuentosLogistica,
     double? precioUnitarioGlobal,
+    /// Bultos realmente vendidos por categoría (si hubo merma). Sin dato = todo lo anotado.
+    Map<String, int> vendidos = const {},
+    /// Detalle de la liquidación que se guarda tal cual (descuentos, forma de cobro, comprobante).
+    Map<String, dynamic>? detalle,
   }) async {
     final maps = await _localDatasource.listCosechas(campanaId);
     final cosechaMap = maps.firstWhere(
@@ -693,6 +739,11 @@ class CosechasNotifier extends StateNotifier<CosechasState> {
 
     double totalBruto = 0;
     final liquidacionSync = <Map<String, dynamic>>[];
+    final anotados = <String, int>{};
+    for (final d in detalles) {
+      final cat = d.categoria;
+      if (cat != null) anotados[cat] = (anotados[cat] ?? 0) + d.cantidadBultos;
+    }
 
     for (final d in detalles) {
       double? precio;
@@ -707,7 +758,11 @@ class CosechasNotifier extends StateNotifier<CosechasState> {
       }
       if (precio == null || precio <= 0 || d.id == null) continue;
 
-      final monto = d.montoUnidad(tipoCalculo, precio);
+      // Con merma, el monto de la calidad se reparte entre sus filas en proporción.
+      final anotado = anotados[d.categoria] ?? 0;
+      final vendido = vendidos[d.categoria];
+      final factor = (vendido != null && anotado > 0) ? vendido / anotado : 1.0;
+      final monto = d.montoUnidad(tipoCalculo, precio) * factor;
       totalBruto += monto;
 
       await _localDatasource.updateCosechaDetalle(d.id!, {
@@ -720,7 +775,8 @@ class CosechasNotifier extends StateNotifier<CosechasState> {
 
     // Ruta legacy sin detalles: precio global × peso total o cantidad
     if (detalles.isEmpty) {
-      final base =
+      // Sin detalle por calidad, la clave '*' trae los bultos vendidos de toda la carga.
+      final base = vendidos['*']?.toDouble() ??
           (cosechaMap['peso_total_kg'] as num?)?.toDouble() ??
           (cosechaMap['cantidad_unidades'] as num?)?.toDouble() ??
           0;
@@ -735,6 +791,7 @@ class CosechasNotifier extends StateNotifier<CosechasState> {
       'descuentos_logistica': descuentosLogistica,
       'monto_neto_final': montoNeto,
       'fecha_liquidacion': DateTime.now().toIso8601String(),
+      'liquidacion_json': detalle == null ? null : jsonEncode(detalle),
       'is_synced': 0,
     });
 

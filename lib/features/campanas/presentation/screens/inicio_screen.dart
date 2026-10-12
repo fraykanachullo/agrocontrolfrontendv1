@@ -11,7 +11,8 @@ import '../../../cuaderno/presentation/widgets/expense_sheet.dart';
 import '../../../cuaderno/presentation/widgets/record_sheets.dart';
 import '../../domain/entities/campana.dart';
 import '../campaign_actions.dart';
-import '../widgets/campaign_card.dart';
+import '../campaign_display.dart';
+import '../widgets/campaign_tile.dart';
 
 // es_419: miles con coma y decimales con punto (S/ 48,320.20), como se usa en Perú.
 final _amount = NumberFormat('#,##0.00', 'es_419');
@@ -29,39 +30,8 @@ const _quickExpenses = <(IconData, String, String)>[
   (Icons.more_horiz_rounded, 'Otro', 'Otros'),
 ];
 
-String cropEmoji(String cultivo) {
-  final c = cultivo.toLowerCase();
-  if (c.contains('tomate')) return '🍅';
-  if (c.contains('cebolla')) return '🧅';
-  if (c.contains('ajo')) return '🧄';
-  if (c.contains('vainita')) return '🫛';
-  if (c.contains('papa')) return '🥔';
-  if (c.contains('maíz') || c.contains('maiz')) return '🌽';
-  if (c.contains('palto') || c.contains('aguacate')) return '🥑';
-  if (c.contains('uva')) return '🍇';
-  return '🌱';
-}
-
 /// Formatea un monto con signo: "+S/ 1,200.00" / "-S/ 1,200.00".
 String signedAmount(double value) => '${value < 0 ? '-' : '+'}S/ ${_amount.format(value.abs())}';
-
-/// Etapa visible de la campaña según su estado y si ya hubo cosechas.
-enum CampaignStage {
-  inicio('Inicio', Icons.flag_outlined),
-  crecimiento('Crecimiento', Icons.eco_outlined),
-  cosecha('Cosecha', Icons.agriculture_outlined),
-  cierre('Cierre', Icons.task_alt_rounded);
-
-  final String label;
-  final IconData icon;
-  const CampaignStage(this.label, this.icon);
-
-  static CampaignStage of(Campana campana, {required bool hasHarvests, required bool hasRecords}) {
-    if (campana.isClosed) return cierre;
-    if (hasHarvests) return cosecha;
-    return hasRecords ? crecimiento : inicio;
-  }
-}
 
 class InicioScreen extends ConsumerStatefulWidget {
   const InicioScreen({super.key});
@@ -956,14 +926,9 @@ class _NoCampaignView extends ConsumerWidget {
           for (final c in state.campanas)
             Padding(
               padding: const EdgeInsets.only(bottom: 10),
-              child: CampaignCard(
-                title: c.nombre,
-                subtitle: c.cultivo,
-                startDate: c.fechaInicio != null
-                    ? 'Inicio: ${DateFormat('dd MMM yyyy', 'es').format(c.fechaInicio!)}'
-                    : 'Sin fecha',
-                extension: c.extensionDisplay,
-                isActive: c.isActive,
+              child: CampaignTile(
+                campana: c,
+                resumen: ref.watch(campanaResumenesProvider).value?[c.id],
                 onTap: () => ref.read(activeCampanaIdProvider.notifier).state = c.id,
               ),
             ),

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'cosecha_clase.dart';
 import 'cosecha_detalle.dart';
 
@@ -24,6 +26,10 @@ class Cosecha {
   final List<CosechaClase> clases;
   final List<CosechaDetalle> detalles;
 
+  /// Detalle de la liquidación (ver [LiquidacionDetalle] en el liquidador):
+  /// vendidos por calidad, descuentos, forma de cobro y foto del comprobante.
+  final Map<String, dynamic> liquidacion;
+
   const Cosecha({
     this.id,
     required this.campanaId,
@@ -46,7 +52,17 @@ class Cosecha {
     this.isSynced = false,
     this.clases = const [],
     this.detalles = const [],
+    this.liquidacion = const {},
   });
+
+  static Map<String, dynamic> decodeLiquidacion(Object? raw) {
+    if (raw is! String || raw.isEmpty) return const {};
+    try {
+      return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+    } catch (_) {
+      return const {};
+    }
+  }
 
   /// Unidad de cálculo de venta efectiva (fallback a por_kilo).
   String get tipoCalculoEfectivo => tipoCalculoVenta ?? 'por_kilo';
@@ -128,6 +144,7 @@ class Cosecha {
       montoNetoFinal: (map['monto_neto_final'] as num?)?.toDouble(),
       fechaEnvio: map['fecha_envio'] as String?,
       fechaLiquidacion: map['fecha_liquidacion'] as String?,
+      liquidacion: decodeLiquidacion(map['liquidacion_json']),
       createdAt: map['created_at'] as String?,
       isSynced: (map['is_synced'] as int? ?? 0) == 1,
       detalles: detalles,

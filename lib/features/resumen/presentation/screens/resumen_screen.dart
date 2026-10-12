@@ -9,7 +9,7 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../../campanas/domain/entities/campana.dart';
 import '../../../campanas/presentation/campaign_actions.dart';
-import '../../../campanas/presentation/screens/inicio_screen.dart' show cropEmoji;
+import '../../../campanas/presentation/campaign_display.dart';
 import '../../../cosechas/domain/entities/cosecha.dart';
 
 final _amount = NumberFormat('#,##0.00', 'es_419');
@@ -86,7 +86,12 @@ class _ResumenScreenState extends ConsumerState<ResumenScreen> {
 
     final cosechas = ref.watch(cosechasProvider);
     final f = _Figures.from(ref.watch(dashboardDataProvider).value, cosechas.entregadas);
-    final categorias = ref.watch(gastosPorCategoriaProvider).value ?? const [];
+    List<(String, double)> rows(List<Map<String, dynamic>>? data, String key) => [
+          for (final m in data ?? const <Map<String, dynamic>>[])
+            (_label(m[key] as String?), (m['total'] as num).toDouble()),
+        ];
+    final categorias = rows(ref.watch(gastosPorCategoriaProvider).value, 'categoria');
+    final etapas = rows(ref.watch(gastosPorEtapaProvider).value, 'etapa');
 
     return ListView(
       padding: EdgeInsets.fromLTRB(20, 4, 20, 24 + MediaQuery.paddingOf(context).bottom),
@@ -106,7 +111,10 @@ class _ResumenScreenState extends ConsumerState<ResumenScreen> {
         _UnitMetrics(f: f, campana: campana),
         const SizedBox(height: 24),
         const SectionHeader(title: '¿En qué se va la plata?'),
-        _ExpenseBars(categorias: categorias, total: f.gastos),
+        _ExpenseBars(rows: categorias, total: f.gastos),
+        const SizedBox(height: 24),
+        const SectionHeader(title: 'Gasto por etapa del cultivo'),
+        _ExpenseBars(rows: etapas, total: f.gastos),
         const SizedBox(height: 24),
         AgroActionButton(
           label: 'Compartir resumen por WhatsApp',
@@ -564,17 +572,22 @@ class _MetricCard extends StatelessWidget {
   }
 }
 
-/// Barras horizontales de gasto por categoría.
+String _label(String? raw) {
+  final value = (raw == null || raw.isEmpty) ? 'general' : raw;
+  return value[0].toUpperCase() + value.substring(1);
+}
+
+/// Barras horizontales de gasto (por categoría o por etapa).
 class _ExpenseBars extends StatelessWidget {
-  final List<Map<String, dynamic>> categorias;
+  final List<(String, double)> rows;
   final double total;
 
-  const _ExpenseBars({required this.categorias, required this.total});
+  const _ExpenseBars({required this.rows, required this.total});
 
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
-    if (categorias.isEmpty || total <= 0) {
+    if (rows.isEmpty || total <= 0) {
       return GlassCard(
         padding: const EdgeInsets.all(20),
         child: Text('Aún no hay gastos registrados.', style: text.bodySmall, textAlign: TextAlign.center),
@@ -595,24 +608,15 @@ class _ExpenseBars extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          for (final (i, entry) in categorias.indexed) ...[
+          for (final (i, (label, amount)) in rows.indexed) ...[
             if (i > 0) const SizedBox(height: 14),
-            _Bar(
-              label: _label(entry['categoria'] as String?),
-              amount: (entry['total'] as num).toDouble(),
-              share: (entry['total'] as num).toDouble() / total,
-              color: colors[i % colors.length],
-            ),
+            _Bar(label: label, amount: amount, share: amount / total, color: colors[i % colors.length]),
           ],
         ],
       ),
     );
   }
 
-  static String _label(String? raw) {
-    final value = (raw == null || raw.isEmpty) ? 'general' : raw;
-    return value[0].toUpperCase() + value.substring(1);
-  }
 }
 
 class _Bar extends StatelessWidget {
