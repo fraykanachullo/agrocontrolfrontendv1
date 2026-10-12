@@ -1,11 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../../../../core/theme/app_colors.dart';
 
 class KpiSummaryCard extends StatelessWidget {
-  const KpiSummaryCard({super.key});
+  final Map<String, dynamic>? data;
+
+  const KpiSummaryCard({super.key, this.data});
 
   @override
   Widget build(BuildContext context) {
+    final totalGastos = data?['total_gastos'] as double? ?? 0;
+    final totalIngresos = data?['total_ingresos'] as double? ?? 0;
+    final balance = data?['balance'] as double? ?? 0;
+    final totalActividades = data?['total_actividades'] as int? ?? 0;
+
+    final currencyFormat = NumberFormat.currency(locale: 'es_PE', symbol: 'S/', decimalDigits: 2);
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -23,7 +33,6 @@ class KpiSummaryCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -32,14 +41,12 @@ class KpiSummaryCard extends StatelessWidget {
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
               Icon(
-                Icons.trending_up,
-                color: AppColors.primary,
+                totalIngresos > totalGastos ? Icons.trending_up : Icons.trending_down,
+                color: totalIngresos > totalGastos ? AppColors.primary : AppColors.error,
               ),
             ],
           ),
           const SizedBox(height: 16),
-
-          // KPI Grid
           GridView.count(
             crossAxisCount: 2,
             shrinkWrap: true,
@@ -50,39 +57,37 @@ class KpiSummaryCard extends StatelessWidget {
             children: [
               _buildKpiItem(
                 context,
-                label: 'Total Inversión',
-                value: 'S/ 4,520.00',
+                label: 'Total Gastos',
+                value: currencyFormat.format(totalGastos),
                 color: AppColors.error,
                 bgColor: AppColors.surfaceContainerLow,
                 borderColor: AppColors.surfaceVariant,
-                icon: null,
               ),
               _buildKpiItem(
                 context,
-                label: 'Total Recaudado',
-                value: 'S/ 6,980.00',
+                label: 'Total Ingresos',
+                value: currencyFormat.format(totalIngresos),
                 color: AppColors.primary,
                 bgColor: AppColors.surfaceContainerLow,
                 borderColor: AppColors.surfaceVariant,
-                icon: null,
               ),
               _buildKpiItem(
                 context,
-                label: 'Margen Neto',
-                value: 'S/ 2,460.00',
-                color: AppColors.onPrimaryContainer,
-                bgColor: AppColors.primaryContainer,
-                borderColor: AppColors.primaryFixedDim,
-                icon: Icons.arrow_upward,
+                label: 'Balance',
+                value: currencyFormat.format(balance),
+                color: balance >= 0 ? AppColors.onPrimaryContainer : AppColors.error,
+                bgColor: balance >= 0 ? AppColors.primaryContainer : AppColors.errorContainer,
+                borderColor: balance >= 0 ? AppColors.primaryFixedDim : AppColors.error,
+                icon: balance >= 0 ? Icons.arrow_upward : Icons.arrow_downward,
               ),
               _buildKpiItem(
                 context,
-                label: 'Por Cobrar',
-                value: 'S/ 1,150.00',
+                label: 'Actividades',
+                value: '$totalActividades',
                 color: AppColors.onSecondaryContainer,
                 bgColor: AppColors.secondaryContainer,
                 borderColor: AppColors.secondaryFixedDim,
-                icon: Icons.pending_actions,
+                icon: Icons.agriculture,
               ),
             ],
           ),
@@ -128,7 +133,7 @@ class KpiSummaryCard extends StatelessWidget {
                   value,
                   style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                         color: color,
-                        fontSize: 20,
+                        fontSize: 18,
                       ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,

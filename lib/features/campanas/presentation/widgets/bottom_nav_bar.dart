@@ -4,8 +4,13 @@ import '../../../../core/theme/app_colors.dart';
 
 class BottomNavBar extends StatelessWidget {
   final int selectedIndex;
+  final String campaignId;
 
-  const BottomNavBar({super.key, required this.selectedIndex});
+  const BottomNavBar({
+    super.key,
+    required this.selectedIndex,
+    required this.campaignId,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -22,37 +27,37 @@ class BottomNavBar extends StatelessWidget {
       ),
       child: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               _buildNavItem(
                 context,
                 index: 0,
-                icon: Icons.bar_chart,
-                label: 'Dashboard',
-                route: '/dashboard',
+                icon: Icons.home,
+                label: 'Inicio',
+                route: '/c/$campaignId/inicio',
               ),
               _buildNavItem(
                 context,
                 index: 1,
-                icon: Icons.description,
+                icon: Icons.note,
                 label: 'Cuaderno',
-                route: '/cuaderno',
+                route: '/c/$campaignId/cuaderno',
               ),
               _buildNavItem(
                 context,
                 index: 2,
-                icon: Icons.agriculture,
+                icon: Icons.local_shipping,
                 label: 'Cosechas',
-                route: '/cosechas',
+                route: '/c/$campaignId/cosechas',
               ),
               _buildNavItem(
                 context,
                 index: 3,
-                icon: Icons.calendar_today,
-                label: 'Historial',
-                route: '/historial',
+                icon: Icons.bar_chart,
+                label: 'Resumen',
+                route: '/c/$campaignId/resumen',
               ),
             ],
           ),
@@ -79,7 +84,7 @@ class BottomNavBar extends StatelessWidget {
         },
         borderRadius: BorderRadius.circular(12),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.symmetric(vertical: 6),
           decoration: isSelected
               ? BoxDecoration(
                   color: AppColors.primaryContainer,
@@ -91,18 +96,19 @@ class BottomNavBar extends StatelessWidget {
             children: [
               Icon(
                 icon,
-                size: 24,
+                size: 22,
                 color: isSelected
                     ? AppColors.onPrimaryContainer
                     : AppColors.onSurfaceVariant,
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 2),
               Text(
                 label,
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
                       color: isSelected
                           ? AppColors.onPrimaryContainer
                           : AppColors.onSurfaceVariant,
+                      fontSize: 10,
                     ),
               ),
             ],

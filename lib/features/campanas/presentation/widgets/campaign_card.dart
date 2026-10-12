@@ -3,22 +3,26 @@ import '../../../../core/theme/app_colors.dart';
 
 class CampaignCard extends StatelessWidget {
   final String title;
+  final String? subtitle;
   final String startDate;
+  final String? extension;
   final bool isActive;
-  final IconData icon;
   final VoidCallback onTap;
 
   const CampaignCard({
     super.key,
     required this.title,
+    this.subtitle,
     required this.startDate,
+    this.extension,
     required this.isActive,
-    required this.icon,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    final icon = _getCropIcon();
+
     return Material(
       color: isActive
           ? AppColors.surfaceContainerLowest
@@ -54,28 +58,51 @@ class CampaignCard extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style:
-                          Theme.of(context).textTheme.headlineSmall?.copyWith(
-                                fontSize: 20,
-                                height: 28 / 20,
-                              ),
+                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                            fontSize: 20,
+                            height: 28 / 20,
+                          ),
                     ),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle!,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: AppColors.onSurfaceVariant,
+                            ),
+                      ),
+                    ],
                     const SizedBox(height: 4),
-                    Row(
+                    Wrap(
+                      spacing: 4,
+                      runSpacing: 2,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         Icon(
                           Icons.calendar_month,
                           size: 16,
                           color: AppColors.onSurfaceVariant,
                         ),
-                        const SizedBox(width: 4),
                         Text(
                           startDate,
-                          style:
-                              Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: AppColors.onSurfaceVariant,
-                                  ),
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: AppColors.onSurfaceVariant,
+                              ),
                         ),
+                        if (extension != null) ...[
+                          const SizedBox(width: 8),
+                          Icon(
+                            Icons.square_foot,
+                            size: 14,
+                            color: AppColors.onSurfaceVariant,
+                          ),
+                          Text(
+                            extension!,
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: AppColors.onSurfaceVariant,
+                                ),
+                          ),
+                        ],
                       ],
                     ),
                   ],
@@ -97,6 +124,15 @@ class CampaignCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  IconData _getCropIcon() {
+    final crop = subtitle?.toLowerCase() ?? '';
+    if (crop.contains('tomate')) return Icons.agriculture;
+    if (crop.contains('cebolla')) return Icons.spa;
+    if (crop.contains('papa')) return Icons.grass;
+    if (crop.contains('maíz') || crop.contains('maiz')) return Icons.eco;
+    return Icons.agriculture;
   }
 
   Widget _buildStatusBadge(BuildContext context) {

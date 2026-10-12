@@ -1,77 +1,70 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import '../../../../core/theme/app_colors.dart';
-import '../../../../core/widgets/agro_control_app_bar.dart';
+import '../../../../core/providers/app_providers.dart';
 import '../widgets/campaign_card.dart';
-import '../widgets/bottom_nav_bar.dart';
 
-class CampaignSelectorScreen extends StatelessWidget {
+class CampaignSelectorScreen extends ConsumerStatefulWidget {
   const CampaignSelectorScreen({super.key});
 
   @override
+  ConsumerState<CampaignSelectorScreen> createState() =>
+      _CampaignSelectorScreenState();
+}
+
+class _CampaignSelectorScreenState extends ConsumerState<CampaignSelectorScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Load campaigns on first render
+    final state = ref.read(campanaListProvider);
+    if (state.campanas.isEmpty && !state.isLoading) {
+      Future.microtask(() => ref.read(campanaListProvider.notifier).loadCampanas());
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final campanaState = ref.watch(campanaListProvider);
+
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: const AgroControlAppBar(),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header
-              Text(
-                'Seleccionar Campaña',
-                style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                      fontSize: 26,
-                      height: 32 / 26,
-                    ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Seleccionar Campaña',
+                    style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+                          fontSize: 26,
+                          height: 32 / 26,
+                        ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Elige la campaña activa para gestionar datos\no consulta el historial cerrado.',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: AppColors.onSurfaceVariant,
+                        ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 8),
-              Text(
-                'Elige la campaña activa para gestionar datos\no consulta el historial cerrado.',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: AppColors.onSurfaceVariant,
-                    ),
-              ),
-              const SizedBox(height: 24),
+            ),
+            const SizedBox(height: 16),
 
-              // Active campaigns
-              CampaignCard(
-                title: 'Tomate 2025',
-                startDate: 'Inicio: 15 Ene 2025',
-                isActive: true,
-                icon: Icons.agriculture,
-                onTap: () => context.go('/dashboard'),
-              ),
-              const SizedBox(height: 12),
-              CampaignCard(
-                title: 'Cebolla 2025',
-                startDate: 'Inicio: 01 Mar 2025',
-                isActive: true,
-                icon: Icons.spa,
-                onTap: () => context.go('/dashboard'),
-              ),
-
-              // Divider
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                child: Container(
-                  height: 1,
-                  color: AppColors.surfaceVariant,
-                ),
-              ),
-
-              // Closed campaigns
-              CampaignCard(
-                title: 'Papa 2024',
-                startDate: 'Fin: 20 Dic 2024',
-                isActive: false,
-                icon: Icons.history,
-                onTap: () {},
-              ),
-            ],
-          ),
+            // Campaign list
+            Expanded(
+              child: _buildCampaignList(campanaState),
+            ),
+          ],
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -87,7 +80,128 @@ class CampaignSelectorScreen extends StatelessWidget {
               ),
         ),
       ),
-      bottomNavigationBar: const BottomNavBar(selectedIndex: 0),
     );
+  }
+
+  Widget _buildCampaignList(CampanaListState state) {
+    if (state.isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.primary),
+      );
+    }
+
+    if (state.error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.error_outline, size: 48, color: AppColors.error),
+              const SizedBox(height: 16),
+              Text(
+                state.error!,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: AppColors.onSurfaceVariant,
+                    ),
+              ),
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: () =>
+                    ref.read(campanaListProvider.notifier).loadCampanas(),
+                child: const Text('Reintentar'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (state.campanas.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.agriculture, size: 64, color: AppColors.outlineVariant),
+              const SizedBox(height: 16),
+              Text(
+                'No hay campañas registradas',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      color: AppColors.onSurfaceVariant,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Crea tu primera campaña para comenzar\na registrar actividades y cosechas.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: AppColors.onSurfaceVariant,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final activeCampanas = state.campanas.where((c) => c.isActive).toList();
+    final closedCampanas = state.campanas.where((c) => c.isClosed).toList();
+
+    return RefreshIndicator(
+      onRefresh: () => ref.read(campanaListProvider.notifier).loadCampanas(),
+      child: ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        children: [
+          if (activeCampanas.isNotEmpty) ...[
+            for (final campana in activeCampanas) ...[
+              CampaignCard(
+                title: campana.nombre,
+                subtitle: campana.cultivo,
+                startDate: campana.fechaInicio != null
+                    ? 'Inicio: ${DateFormat('dd MMM yyyy', 'es').format(campana.fechaInicio!)}'
+                    : 'Sin fecha',
+                extension: campana.extensionDisplay,
+                isActive: true,
+                onTap: () => _selectCampaign(campana.id),
+              ),
+              const SizedBox(height: 12),
+            ],
+          ],
+
+          if (closedCampanas.isNotEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Container(
+                height: 1,
+                color: AppColors.surfaceVariant,
+              ),
+            ),
+            for (final campana in closedCampanas) ...[
+              CampaignCard(
+                title: campana.nombre,
+                subtitle: campana.cultivo,
+                startDate: campana.fechaCierre != null
+                    ? 'Fin: ${DateFormat('dd MMM yyyy', 'es').format(campana.fechaCierre!)}'
+                    : 'Cerrada',
+                extension: campana.extensionDisplay,
+                isActive: false,
+                onTap: () {},
+              ),
+              const SizedBox(height: 12),
+            ],
+          ],
+
+          const SizedBox(height: 80),
+        ],
+      ),
+    );
+  }
+
+  void _selectCampaign(int campaignId) {
+    ref.read(activeCampanaIdProvider.notifier).state = campaignId;
+    context.go('/c/$campaignId/inicio');
   }
 }

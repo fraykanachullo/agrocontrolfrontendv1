@@ -1,16 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/providers/app_providers.dart';
 import '../../../../core/widgets/agro_control_app_bar.dart';
 
-class NuevaCampanaScreen extends StatefulWidget {
+class NuevaCampanaScreen extends ConsumerStatefulWidget {
   const NuevaCampanaScreen({super.key});
 
   @override
-  State<NuevaCampanaScreen> createState() => _NuevaCampanaScreenState();
+  ConsumerState<NuevaCampanaScreen> createState() => _NuevaCampanaScreenState();
 }
 
-class _NuevaCampanaScreenState extends State<NuevaCampanaScreen>
+class _NuevaCampanaScreenState extends ConsumerState<NuevaCampanaScreen>
     with SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
   final _nombreController = TextEditingController();
@@ -25,6 +27,7 @@ class _NuevaCampanaScreenState extends State<NuevaCampanaScreen>
   bool _esAlquilada = false;
   String _periodoAlquiler = 'Mensual';
   bool _ubicacionObtenida = false;
+  bool _isSubmitting = false;
 
   late AnimationController _animController;
   late Animation<double> _fadeAnimation;
@@ -74,7 +77,6 @@ class _NuevaCampanaScreenState extends State<NuevaCampanaScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Nombre
                       _buildSectionLabel('Nombre de la campaña'),
                       _buildCard(
                         child: TextFormField(
@@ -89,7 +91,6 @@ class _NuevaCampanaScreenState extends State<NuevaCampanaScreen>
                       ),
                       const SizedBox(height: 16),
 
-                      // Tipo de cultivo + Fecha
                       Row(
                         children: [
                           Expanded(
@@ -99,26 +100,21 @@ class _NuevaCampanaScreenState extends State<NuevaCampanaScreen>
                                 _buildSectionLabel('Tipo de cultivo'),
                                 _buildCard(
                                   child: DropdownButtonFormField<String>(
+                                    isDense: true,
                                     initialValue: _tipoCultivo,
-                                    decoration: _inputDecoration(
-                                      prefixIcon: Icons.eco,
+                                    decoration: const InputDecoration(
+                                      border: InputBorder.none,
+                                      contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                                     ),
                                     items: const [
-                                      DropdownMenuItem(
-                                          value: 'tomate',
-                                          child: Text('Tomate')),
-                                      DropdownMenuItem(
-                                          value: 'cebolla',
-                                          child: Text('Cebolla')),
-                                      DropdownMenuItem(
-                                          value: 'papa', child: Text('Papa')),
-                                      DropdownMenuItem(
-                                          value: 'maiz', child: Text('Maíz')),
-                                      DropdownMenuItem(
-                                          value: 'trigo',
-                                          child: Text('Trigo')),
-                                      DropdownMenuItem(
-                                          value: 'otro', child: Text('Otro')),
+                                      DropdownMenuItem(value: 'tomate', child: Text('Tomate')),
+                                      DropdownMenuItem(value: 'cebolla', child: Text('Cebolla')),
+                                      DropdownMenuItem(value: 'ajo', child: Text('Ajo')),
+                                      DropdownMenuItem(value: 'vainita', child: Text('Vainita')),
+                                      DropdownMenuItem(value: 'papa', child: Text('Papa')),
+                                      DropdownMenuItem(value: 'maiz', child: Text('Maíz')),
+                                      DropdownMenuItem(value: 'trigo', child: Text('Trigo')),
+                                      DropdownMenuItem(value: 'otro', child: Text('Otro')),
                                     ],
                                     onChanged: (v) =>
                                         setState(() => _tipoCultivo = v),
@@ -162,7 +158,6 @@ class _NuevaCampanaScreenState extends State<NuevaCampanaScreen>
                       ),
                       const SizedBox(height: 16),
 
-                      // Área plantada
                       _buildSectionLabel('Área plantada'),
                       _buildCard(
                         child: Row(
@@ -206,7 +201,6 @@ class _NuevaCampanaScreenState extends State<NuevaCampanaScreen>
                       ),
                       const SizedBox(height: 16),
 
-                      // Propiedad de parcela
                       _buildSectionLabel('Propiedad de la parcela'),
                       _buildCard(
                         child: Column(
@@ -323,7 +317,6 @@ class _NuevaCampanaScreenState extends State<NuevaCampanaScreen>
                       ),
                       const SizedBox(height: 16),
 
-                      // Ubicación
                       _buildSectionLabel('Ubicación'),
                       _buildCard(
                         child: Column(
@@ -397,7 +390,6 @@ class _NuevaCampanaScreenState extends State<NuevaCampanaScreen>
                       ),
                       const SizedBox(height: 16),
 
-                      // Meta + Notas
                       Row(
                         children: [
                           Expanded(
@@ -426,9 +418,11 @@ class _NuevaCampanaScreenState extends State<NuevaCampanaScreen>
                                 _buildSectionLabel('Unidad meta'),
                                 _buildCard(
                                   child: DropdownButtonFormField<String>(
+                                    isDense: true,
                                     initialValue: 'kg',
-                                    decoration: _inputDecoration(
-                                      prefixIcon: Icons.scale,
+                                    decoration: const InputDecoration(
+                                      border: InputBorder.none,
+                                      contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                                     ),
                                     items: const [
                                       DropdownMenuItem(
@@ -467,7 +461,6 @@ class _NuevaCampanaScreenState extends State<NuevaCampanaScreen>
                 ),
               ),
 
-              // Fixed bottom button
               Container(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
                 decoration: BoxDecoration(
@@ -480,11 +473,20 @@ class _NuevaCampanaScreenState extends State<NuevaCampanaScreen>
                   width: double.infinity,
                   height: 52,
                   child: FilledButton.icon(
-                    onPressed: _submitForm,
-                    icon: const Icon(Icons.add_circle),
-                    label: const Text(
-                      'CREAR CAMPAÑA',
-                      style: TextStyle(
+                    onPressed: _isSubmitting ? null : _submitForm,
+                    icon: _isSubmitting
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppColors.onPrimary,
+                            ),
+                          )
+                        : const Icon(Icons.add_circle),
+                    label: Text(
+                      _isSubmitting ? 'CREANDO...' : 'CREAR CAMPAÑA',
+                      style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
                         letterSpacing: 0.5,
@@ -493,6 +495,7 @@ class _NuevaCampanaScreenState extends State<NuevaCampanaScreen>
                     style: FilledButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: AppColors.onPrimary,
+                      disabledBackgroundColor: AppColors.primary.withValues(alpha: 0.5),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
@@ -578,12 +581,44 @@ class _NuevaCampanaScreenState extends State<NuevaCampanaScreen>
     }
   }
 
-  void _submitForm() {
-    if (_formKey.currentState!.validate()) {
+  Future<void> _submitForm() async {
+    if (!_formKey.currentState!.validate()) return;
+    if (_fechaInicio == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Campaña creada exitosamente')),
+        const SnackBar(content: Text('Seleccione una fecha de inicio')),
       );
-      context.go('/campanas');
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+
+    try {
+      final extensionValue = double.tryParse(_areaController.text) ?? 0;
+      final tipoExtension = _unidad == 'ha' ? 'hectarea' : 'topo';
+
+      final campana = await ref.read(campanaListProvider.notifier).createCampana(
+            nombre: _nombreController.text.trim(),
+            cultivo: _tipoCultivo ?? 'otro',
+            extension: extensionValue,
+            tipoExtension: tipoExtension,
+            fechaInicio: _fechaInicio!,
+          );
+
+      if (!mounted) return;
+
+      if (campana != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Campaña creada exitosamente')),
+        );
+        context.go('/campanas');
+      } else {
+        final error = ref.read(campanaListProvider).error;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error ?? 'Error al crear campaña')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
     }
   }
 }

@@ -1,11 +1,90 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/providers/app_providers.dart';
 
-class ActivityHistoryList extends StatelessWidget {
-  const ActivityHistoryList({super.key});
+class ActivityHistoryList extends ConsumerWidget {
+  final int campanaId;
+
+  const ActivityHistoryList({super.key, required this.campanaId});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cuaderno = ref.watch(cuadernoProvider);
+
+    if (cuaderno.isLoading) {
+      return const Center(child: Padding(
+        padding: EdgeInsets.all(32),
+        child: CircularProgressIndicator(),
+      ));
+    }
+
+    final allItems = <_HistoryItem>[];
+
+    for (final a in cuaderno.actividades) {
+      allItems.add(_HistoryItem(
+        icon: Icons.agriculture,
+        iconBg: AppColors.primaryContainer.withValues(alpha: 0.2),
+        iconColor: AppColors.primary,
+        title: a.descripcion,
+        subtitle: _formatDate(a.fecha),
+        trailing: Text(
+          'Actividad',
+          style: TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w500),
+        ),
+      ));
+    }
+
+    for (final t in cuaderno.transaccionesGasto) {
+      allItems.add(_HistoryItem(
+        icon: Icons.attach_money,
+        iconBg: AppColors.errorContainer.withValues(alpha: 0.5),
+        iconColor: AppColors.onErrorContainer,
+        title: 'Gasto: ${t.descripcion}',
+        subtitle: '${_formatDate(t.fecha)} - ${t.categoria}',
+        trailing: Text(
+          'S/${t.monto.toStringAsFixed(2)}',
+          style: TextStyle(color: AppColors.error, fontSize: 12, fontWeight: FontWeight.w600),
+        ),
+      ));
+    }
+
+    for (final t in cuaderno.transaccionesIngreso) {
+      allItems.add(_HistoryItem(
+        icon: Icons.trending_up,
+        iconBg: AppColors.primaryContainer.withValues(alpha: 0.3),
+        iconColor: AppColors.primary,
+        title: 'Ingreso: ${t.descripcion}',
+        subtitle: '${_formatDate(t.fecha)} - ${t.categoria}',
+        trailing: Text(
+          'S/${t.monto.toStringAsFixed(2)}',
+          style: TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w600),
+        ),
+      ));
+    }
+
+    if (allItems.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(32),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceContainerLowest,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          children: [
+            Icon(Icons.note_add_outlined, size: 48, color: AppColors.outlineVariant),
+            const SizedBox(height: 12),
+            Text(
+              'Sin registros hoy',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppColors.onSurfaceVariant),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -14,10 +93,8 @@ class ActivityHistoryList extends StatelessWidget {
             Icon(Icons.history, size: 16, color: AppColors.onSurfaceVariant),
             const SizedBox(width: 8),
             Text(
-              'Historial de hoy',
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: AppColors.onSurfaceVariant,
-                  ),
+              'Últimos registros',
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(color: AppColors.onSurfaceVariant),
             ),
           ],
         ),
@@ -35,100 +112,84 @@ class ActivityHistoryList extends StatelessWidget {
             ],
           ),
           child: Column(
-            children: [
-              _buildHistoryItem(
-                context,
-                icon: Icons.agriculture,
-                iconBg: AppColors.primaryContainer.withValues(alpha: 0.2),
-                iconColor: AppColors.primary,
-                title: 'Fumigación norte',
-                subtitle: '08:00 AM',
-                trailing: IconButton(
-                  icon: const Icon(Icons.photo_camera, size: 20),
-                  onPressed: () {},
-                  color: AppColors.outlineVariant,
-                ),
-              ),
-              _buildHistoryItem(
-                context,
-                icon: Icons.attach_money,
-                iconBg: AppColors.errorContainer.withValues(alpha: 0.5),
-                iconColor: AppColors.onErrorContainer,
-                title: 'Gasto: Combustible',
-                subtitle: '11:30 AM',
-                trailing: Text(
-                  'S/450.00',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppColors.error,
-                        fontWeight: FontWeight.w600,
-                      ),
-                ),
-                isLast: true,
-              ),
-            ],
+            children: allItems.asMap().entries.map((entry) {
+              final idx = entry.key;
+              final item = entry.value;
+              final isLast = idx == allItems.length - 1;
+              return _buildHistoryItem(context, item, isLast);
+            }).toList(),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildHistoryItem(
-    BuildContext context, {
-    required IconData icon,
-    required Color iconBg,
-    required Color iconColor,
-    required String title,
-    required String subtitle,
-    required Widget trailing,
-    bool isLast = false,
-  }) {
+  String _formatDate(String? fecha) {
+    if (fecha == null || fecha.isEmpty) return '--';
+    try {
+      final dt = DateTime.parse(fecha);
+      return DateFormat('dd/MM HH:mm').format(dt);
+    } catch (_) {
+      return fecha.substring(0, fecha.length > 16 ? 16 : fecha.length);
+    }
+  }
+
+  Widget _buildHistoryItem(BuildContext context, _HistoryItem item, bool isLast) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: isLast
           ? null
           : const BoxDecoration(
-              border: Border(
-                bottom: BorderSide(color: AppColors.surfaceContainerHigh),
-              ),
+              border: Border(bottom: BorderSide(color: AppColors.surfaceContainerHigh)),
             ),
       child: Row(
         children: [
-          // Icon
           Container(
             width: 40,
             height: 40,
-            decoration: BoxDecoration(
-              color: iconBg,
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, size: 20, color: iconColor),
+            decoration: BoxDecoration(color: item.iconBg, shape: BoxShape.circle),
+            child: Icon(item.icon, size: 20, color: item.iconColor),
           ),
           const SizedBox(width: 16),
-          // Text
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  title,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w500,
-                      ),
+                  item.title,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w500),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  subtitle,
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: AppColors.onSurfaceVariant,
-                      ),
+                  item.subtitle,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(color: AppColors.onSurfaceVariant),
                 ),
               ],
             ),
           ),
-          // Trailing
-          trailing,
+          item.trailing,
         ],
       ),
     );
   }
+}
+
+class _HistoryItem {
+  final IconData icon;
+  final Color iconBg;
+  final Color iconColor;
+  final String title;
+  final String subtitle;
+  final Widget trailing;
+
+  const _HistoryItem({
+    required this.icon,
+    required this.iconBg,
+    required this.iconColor,
+    required this.title,
+    required this.subtitle,
+    required this.trailing,
+  });
 }

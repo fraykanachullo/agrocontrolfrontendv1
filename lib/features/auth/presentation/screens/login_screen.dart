@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/providers/app_providers.dart';
 
-class LoginScreen extends StatefulWidget {
+class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  ConsumerState<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -28,23 +30,43 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _handleLogin() {
-    if (_formKey.currentState?.validate() ?? false) {
-      context.go('/campanas');
-    }
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+
+    ref.read(authProvider.notifier).login(
+          _emailController.text.trim(),
+          _passwordController.text,
+        );
   }
 
   @override
   Widget build(BuildContext context) {
+    final authState = ref.watch(authProvider);
+
+    // Listen for auth state changes
+    ref.listen<AuthState>(authProvider, (prev, next) {
+      if (next.isAuthenticated) {
+        context.go('/campanas');
+      } else if (next.error != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(next.error!),
+            backgroundColor: AppColors.error,
+          ),
+        );
+        ref.read(authProvider.notifier).clearError();
+      }
+    });
+
     final screenWidth = MediaQuery.of(context).size.width;
     final isDesktop = screenWidth >= 1024;
 
     if (isDesktop) {
-      return _buildDesktopLayout();
+      return _buildDesktopLayout(authState.isLoading);
     }
-    return _buildMobileLayout();
+    return _buildMobileLayout(authState.isLoading);
   }
 
-  Widget _buildDesktopLayout() {
+  Widget _buildDesktopLayout(bool isLoading) {
     return Scaffold(
       backgroundColor: AppColors.surfaceLight,
       body: Row(
@@ -104,7 +126,7 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
           Expanded(
             child: Center(
-              child: _buildLoginCard(maxWidth: 440),
+              child: _buildLoginCard(maxWidth: 440, isLoading: isLoading),
             ),
           ),
         ],
@@ -112,19 +134,21 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Widget _buildMobileLayout() {
+  Widget _buildMobileLayout(bool isLoading) {
     return Scaffold(
       backgroundColor: AppColors.surfaceLight,
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-          child: _buildLoginCard(maxWidth: double.infinity),
+          child:
+              _buildLoginCard(maxWidth: double.infinity, isLoading: isLoading),
         ),
       ),
     );
   }
 
-  Widget _buildLoginCard({required double maxWidth}) {
+  Widget _buildLoginCard(
+      {required double maxWidth, required bool isLoading}) {
     return Container(
       width: maxWidth,
       padding: const EdgeInsets.all(32),
@@ -147,7 +171,7 @@ class _LoginScreenState extends State<LoginScreen> {
         children: [
           _buildHeader(),
           const SizedBox(height: 40),
-          _buildForm(),
+          _buildForm(isLoading: isLoading),
           const SizedBox(height: 40),
           _buildRegisterLink(),
         ],
@@ -200,7 +224,7 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Widget _buildForm() {
+  Widget _buildForm({required bool isLoading}) {
     return Form(
       key: _formKey,
       child: Column(
@@ -227,7 +251,7 @@ class _LoginScreenState extends State<LoginScreen> {
           const SizedBox(height: 16),
           _buildRememberMe(),
           const SizedBox(height: 24),
-          _buildLoginButton(),
+          _buildLoginButton(isLoading: isLoading),
         ],
       ),
     );
@@ -259,10 +283,8 @@ class _LoginScreenState extends State<LoginScreen> {
           decoration: InputDecoration(
             hintText: hint,
             prefixIcon: Icon(icon, size: 20),
-            prefixIconConstraints: const BoxConstraints(
-              minWidth: 48,
-              minHeight: 48,
-            ),
+            prefixIconConstraints:
+                const BoxConstraints(minWidth: 48, minHeight: 48),
           ),
         ),
       ],
@@ -284,7 +306,7 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             ),
             TextButton(
-              onPressed: () {},
+              onPressed: () => context.push('/forgot-password'),
               style: TextButton.styleFrom(
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 minimumSize: Size.zero,
@@ -313,10 +335,8 @@ class _LoginScreenState extends State<LoginScreen> {
           decoration: InputDecoration(
             hintText: '••••••••',
             prefixIcon: const Icon(Icons.lock_outlined, size: 20),
-            prefixIconConstraints: const BoxConstraints(
-              minWidth: 48,
-              minHeight: 48,
-            ),
+            prefixIconConstraints:
+                const BoxConstraints(minWidth: 48, minHeight: 48),
             suffixIcon: IconButton(
               onPressed: _togglePasswordVisibility,
               icon: Icon(
@@ -359,20 +379,29 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Widget _buildLoginButton() {
+  Widget _buildLoginButton({required bool isLoading}) {
     return SizedBox(
       width: double.infinity,
       height: 52,
       child: ElevatedButton(
-        onPressed: _handleLogin,
-        child: const Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text('Iniciar Sesión'),
-            SizedBox(width: 8),
-            Icon(Icons.login, size: 20),
-          ],
-        ),
+        onPressed: isLoading ? null : _handleLogin,
+        child: isLoading
+            ? const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppColors.onPrimary,
+                ),
+              )
+            : const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text('Iniciar Sesión'),
+                  SizedBox(width: 8),
+                  Icon(Icons.login, size: 20),
+                ],
+              ),
       ),
     );
   }
@@ -382,13 +411,13 @@ class _LoginScreenState extends State<LoginScreen> {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Text(
-          'No tengo cuenta.',
+          '¿No tiene cuenta?',
           style: Theme.of(context).textTheme.labelMedium?.copyWith(
                 color: AppColors.onSurfaceVariant,
               ),
         ),
         TextButton(
-          onPressed: () {},
+          onPressed: () => context.push('/register'),
           style: TextButton.styleFrom(
             padding: const EdgeInsets.symmetric(horizontal: 4),
             minimumSize: Size.zero,
@@ -404,7 +433,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
               ),
               const SizedBox(width: 4),
-              Icon(
+              const Icon(
                 Icons.arrow_forward,
                 size: 16,
                 color: AppColors.primary,
