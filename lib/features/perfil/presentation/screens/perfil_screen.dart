@@ -22,7 +22,8 @@ class _PerfilScreenState extends ConsumerState<PerfilScreen> {
       backgroundColor: AppColors.background,
       appBar: const AgroControlAppBar(
         showBackButton: true,
-        title: 'Configuración',
+        showProfile: false,
+        section: 'Perfil',
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -285,7 +286,7 @@ class _PerfilScreenState extends ConsumerState<PerfilScreen> {
           await ref.read(authProvider.notifier).logout();
           if (context.mounted) context.go('/login');
         },
-        icon: const Icon(Icons.logout, color: AppColors.error),
+        icon: Icon(Icons.logout, color: AppColors.error),
         label: Text(
           'Cerrar Sesión',
           style: Theme.of(context).textTheme.labelLarge?.copyWith(
@@ -382,7 +383,7 @@ class _MenuTile extends StatelessWidget {
             ),
             if (trailing != null) ...[trailing!],
             if (trailing == null)
-              const Icon(Icons.chevron_right,
+              Icon(Icons.chevron_right,
                   color: AppColors.outlineVariant),
           ],
         ),

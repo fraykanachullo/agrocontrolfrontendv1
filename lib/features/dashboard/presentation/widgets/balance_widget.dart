@@ -75,7 +75,7 @@ class _CloseCampaignButtonState extends ConsumerState<_CloseCampaignButton> {
         label: const Text('Cerrar'),
         style: OutlinedButton.styleFrom(
           foregroundColor: AppColors.error,
-          side: const BorderSide(color: AppColors.error),
+          side: BorderSide(color: AppColors.error),
           padding: const EdgeInsets.symmetric(horizontal: 10),
           textStyle: Theme.of(context).textTheme.labelSmall,
         ),
@@ -87,7 +87,7 @@ class _CloseCampaignButtonState extends ConsumerState<_CloseCampaignButton> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        icon: const Icon(Icons.warning_amber_rounded, color: AppColors.error, size: 48),
+        icon: Icon(Icons.warning_amber_rounded, color: AppColors.error, size: 48),
         title: const Text('Cerrar Campaña'),
         content: const Text(
           '¿Estás seguro de cerrar esta campaña? '

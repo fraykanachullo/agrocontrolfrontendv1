@@ -65,11 +65,11 @@ class PlanillasScreen extends ConsumerWidget {
             Container(
               width: 88,
               height: 88,
-              decoration: const BoxDecoration(
-                color: Color(0xFFFDF8EC),
+              decoration: BoxDecoration(
+                color: AppColors.card,
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.description_outlined,
                 size: 44,
                 color: AppColors.primary,
@@ -107,7 +107,7 @@ class PlanillasScreen extends ConsumerWidget {
     Planilla p,
   ) {
     return Material(
-      color: const Color(0xFFFDF8EC),
+      color: AppColors.card,
       borderRadius: BorderRadius.circular(14),
       elevation: 1,
       shadowColor: Colors.black.withValues(alpha: 0.15),
@@ -237,7 +237,7 @@ class PlanillasScreen extends ConsumerWidget {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text(
+            child: Text(
               'Eliminar',
               style: TextStyle(color: AppColors.error),
             ),

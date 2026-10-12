@@ -1,70 +1,102 @@
 import 'package:flutter/material.dart';
+import 'agro_palette.dart';
 
+/// Acceso a los colores del modo visual activo (claro u oscuro).
+///
+/// `AgroApp` llama a [use] al construir el tema y fuerza la reconstrucción
+/// de las pantallas al cambiar de modo, por eso los getters siempre
+/// devuelven la paleta vigente. Como son valores en tiempo de ejecución,
+/// no pueden usarse dentro de expresiones `const`.
 abstract final class AppColors {
-  // Primary
-  static const primary = Color(0xFF0D631B);
-  static const primaryContainer = Color(0xFF2E7D32);
-  static const onPrimary = Color(0xFFFFFFFF);
-  static const onPrimaryContainer = Color(0xFFCBFFC2);
-  static const primaryFixed = Color(0xFFA3F69C);
-  static const primaryFixedDim = Color(0xFF88D982);
-  static const onPrimaryFixed = Color(0xFF002204);
-  static const onPrimaryFixedVariant = Color(0xFF005312);
-  static const surfaceTint = Color(0xFF1B6D24);
-  static const inversePrimary = Color(0xFF88D982);
+  static AgroPalette _p = AgroPalette.dark;
 
-  // Secondary
-  static const secondary = Color(0xFF835400);
-  static const secondaryContainer = Color(0xFFFCAB28);
-  static const onSecondary = Color(0xFFFFFFFF);
-  static const onSecondaryContainer = Color(0xFF694300);
-  static const secondaryFixed = Color(0xFFFCAB28);
-  static const secondaryFixedDim = Color(0xFFFFB957);
-  static const onSecondaryFixed = Color(0xFF2A1800);
-  static const onSecondaryFixedVariant = Color(0xFF643F00);
+  static AgroPalette get palette => _p;
+  static void use(AgroPalette palette) => _p = palette;
 
-  // Tertiary
-  static const tertiary = Color(0xFF923357);
-  static const tertiaryContainer = Color(0xFFB14B6F);
-  static const onTertiary = Color(0xFFFFFFFF);
-  static const onTertiaryContainer = Color(0xFFFFEDF0);
-  static const tertiaryFixed = Color(0xFFFFD9E2);
-  static const tertiaryFixedDim = Color(0xFFFFB1C7);
-  static const onTertiaryFixed = Color(0xFF3F001C);
-  static const onTertiaryFixedVariant = Color(0xFF7F2448);
+  static ColorScheme get _s => _p.scheme;
 
-  // Surface
-  static const surface = Color(0xFFFCF9F8);
-  static const surfaceLight = Color(0xFFF5F5F5);
-  static const surfaceContainer = Color(0xFFF0EDED);
-  static const surfaceContainerLow = Color(0xFFF6F3F2);
-  static const surfaceContainerHigh = Color(0xFFEAE7E7);
-  static const surfaceContainerHighest = Color(0xFFE5E2E1);
-  static const surfaceContainerLowest = Color(0xFFFFFFFF);
-  static const surfaceDim = Color(0xFFDCD9D9);
-  static const surfaceBright = Color(0xFFFCF9F8);
-  static const surfaceVariant = Color(0xFFE5E2E1);
-  static const onSurface = Color(0xFF1C1B1B);
-  static const onSurfaceVariant = Color(0xFF40493D);
-  static const inverseSurface = Color(0xFF313030);
-  static const inverseOnSurface = Color(0xFFF3F0EF);
+  // ── Tokens del diseño ──
+  static Color get background => _p.background;
+  static Color get text => _s.onSurface;
+  static Color get textMuted => _s.onSurfaceVariant;
+  static Color get textSubtle => _p.textSubtle;
+  static Color get accent => _s.primary;
+  static Color get onAccent => _s.onPrimary;
+  static Color get accentSoft => _p.accentSoft;
+  static Color get live => _p.live;
+  static Color get card => _s.surfaceContainer;
+  static Color get cardBorder => _p.cardBorder;
+  static Color get cardBorderStrong => _p.cardBorderStrong;
+  static Color get positive => _p.positive;
+  static Color get expense => _p.expense;
+  static Color get warning => _p.warning;
+  static Color get info => _p.info;
+  static Color get track => _p.track;
+  static LinearGradient get ctaGradient => _p.cta;
 
-  // Background
-  static const background = Color(0xFFFCF9F8);
-  static const onBackground = Color(0xFF1C1B1B);
+  static LinearGradient get cardGradient => LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [_p.cardTop, _p.cardBottom],
+      );
 
-  // Outline
-  static const outline = Color(0xFF707A6C);
-  static const outlineVariant = Color(0xFFBFCABA);
+  static LinearGradient get buttonGradient => LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [_p.buttonTop, _p.buttonBottom],
+      );
 
-  // Error
-  static const error = Color(0xFFBA1A1A);
-  static const errorContainer = Color(0xFFFFDAD6);
-  static const onError = Color(0xFFFFFFFF);
-  static const onErrorContainer = Color(0xFF93000A);
+  // ── Roles de Material (pantallas existentes) ──
+  static Color get primary => _s.primary;
+  static Color get onPrimary => _s.onPrimary;
+  static Color get primaryContainer => _s.primaryContainer;
+  static Color get onPrimaryContainer => _s.onPrimaryContainer;
+  static Color get primaryFixed => _s.primaryFixed;
+  static Color get primaryFixedDim => _s.primaryFixedDim;
+  static Color get onPrimaryFixed => _s.onPrimaryFixed;
+  static Color get onPrimaryFixedVariant => _s.onPrimaryFixedVariant;
+  static Color get surfaceTint => _s.primary;
+  static Color get inversePrimary => _s.inversePrimary;
 
-  // Status
-  static const statusActive = Color(0xFF4CAF50);
-  static const statusPending = Color(0xFFFFC107);
-  static const statusClosed = Color(0xFF757575);
+  static Color get secondary => _s.secondary;
+  static Color get onSecondary => _s.onSecondary;
+  static Color get secondaryContainer => _s.secondaryContainer;
+  static Color get onSecondaryContainer => _s.onSecondaryContainer;
+  static Color get secondaryFixed => _s.secondaryFixed;
+  static Color get secondaryFixedDim => _s.secondaryFixedDim;
+  static Color get onSecondaryFixed => _s.onSecondaryFixed;
+  static Color get onSecondaryFixedVariant => _s.onSecondaryFixedVariant;
+
+  static Color get tertiary => _s.tertiary;
+  static Color get onTertiary => _s.onTertiary;
+  static Color get tertiaryContainer => _s.tertiaryContainer;
+  static Color get onTertiaryContainer => _s.onTertiaryContainer;
+
+  static Color get surface => _s.surface;
+  static Color get surfaceLight => _s.surfaceContainerLow;
+  static Color get surfaceContainerLowest => _s.surfaceContainerLowest;
+  static Color get surfaceContainerLow => _s.surfaceContainerLow;
+  static Color get surfaceContainer => _s.surfaceContainer;
+  static Color get surfaceContainerHigh => _s.surfaceContainerHigh;
+  static Color get surfaceContainerHighest => _s.surfaceContainerHighest;
+  static Color get surfaceDim => _s.surfaceDim;
+  static Color get surfaceBright => _s.surfaceBright;
+  static Color get surfaceVariant => _s.surfaceContainerHighest;
+  static Color get onSurface => _s.onSurface;
+  static Color get onSurfaceVariant => _s.onSurfaceVariant;
+  static Color get inverseSurface => _s.inverseSurface;
+  static Color get inverseOnSurface => _s.onInverseSurface;
+  static Color get onBackground => _s.onSurface;
+
+  static Color get outline => _s.outline;
+  static Color get outlineVariant => _s.outlineVariant;
+
+  static Color get error => _s.error;
+  static Color get onError => _s.onError;
+  static Color get errorContainer => _s.errorContainer;
+  static Color get onErrorContainer => _s.onErrorContainer;
+
+  static Color get statusActive => _p.positive;
+  static Color get statusPending => _p.warning;
+  static Color get statusClosed => _p.textSubtle;
 }

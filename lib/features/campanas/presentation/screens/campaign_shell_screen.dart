@@ -1,12 +1,22 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../../../core/theme/app_colors.dart';
-import '../../../../core/providers/app_providers.dart';
 import '../../../../core/widgets/agro_control_app_bar.dart';
+import '../../../../core/widgets/glass.dart';
 import '../widgets/bottom_nav_bar.dart';
 
-class CampaignShellScreen extends ConsumerWidget {
+/// Pestañas de la campaña: (segmento de ruta, nombre de la sección).
+const _tabs = [
+  ('/inicio', 'Inicio'),
+  ('/cuaderno', 'Cuaderno'),
+  ('/cosechas', 'Cosechas'),
+  ('/resumen', 'Resumen'),
+];
+
+/// Pantallas ya rediseñadas: su contenido pasa por detrás de la barra
+/// flotante y reservan el espacio final con `MediaQuery.paddingOf`.
+const _extendsBehindDock = {'/inicio', '/cuaderno', '/resumen'};
+
+class CampaignShellScreen extends StatelessWidget {
   final Widget child;
   final String campaignId;
 
@@ -16,38 +26,26 @@ class CampaignShellScreen extends ConsumerWidget {
     required this.campaignId,
   });
 
-  int _getSelectedIndex(String location) {
-    if (location.contains('/inicio')) return 0;
-    if (location.contains('/cuaderno')) return 1;
-    if (location.contains('/cosechas')) return 2;
-    if (location.contains('/resumen')) return 3;
-    return 0;
-  }
-
-  bool _showBottomNav(String location) {
-    return !location.contains('/historial');
-  }
-
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final location = GoRouterState.of(context).uri.toString();
-    final selectedIndex = _getSelectedIndex(location);
-    final campana = ref.watch(activeCampanaProvider);
+  Widget build(BuildContext context) {
+    final location = GoRouterState.of(context).uri.path;
+    final isHistorial = location.endsWith('/historial');
+    final tabIndex = _tabs.indexWhere((t) => location.endsWith(t.$1));
+    final extendBody = _extendsBehindDock.any(location.endsWith);
 
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AgroControlAppBar(
-        campaignName: location.contains('/historial') ? 'Historial' : campana?.nombre,
-        campaignId: campaignId,
-        showBackButton: location.contains('/historial'),
+    return AgroBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        extendBody: extendBody,
+        appBar: AgroControlAppBar(
+          section: isHistorial ? 'Historial' : _tabs[tabIndex < 0 ? 0 : tabIndex].$2,
+          showBackButton: isHistorial,
+        ),
+        body: SafeArea(top: false, bottom: !extendBody, child: child),
+        bottomNavigationBar: isHistorial
+            ? null
+            : BottomNavBar(selectedIndex: tabIndex < 0 ? 0 : tabIndex, campaignId: campaignId),
       ),
-      body: child,
-      bottomNavigationBar: _showBottomNav(location)
-          ? BottomNavBar(
-              selectedIndex: selectedIndex,
-              campaignId: campaignId,
-            )
-          : null,
     );
   }
 }

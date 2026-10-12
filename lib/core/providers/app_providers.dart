@@ -455,6 +455,7 @@ class CuadernoNotifier extends StateNotifier<CuadernoState> {
     required double monto,
     required String descripcion,
     required String fecha,
+    String estadoPago = 'pendiente',
   }) async {
     final uuidLocal = SyncQueueService.generateUuid();
     final id = await _localDatasource.insertTransaccion({
@@ -464,7 +465,7 @@ class CuadernoNotifier extends StateNotifier<CuadernoState> {
       'monto': monto,
       'descripcion': descripcion,
       'fecha': fecha,
-      'estado_pago': 'pendiente',
+      'estado_pago': estadoPago,
       'created_at': DateTime.now().toIso8601String(),
       'is_synced': 0,
       'uuid_local': uuidLocal,
@@ -479,7 +480,7 @@ class CuadernoNotifier extends StateNotifier<CuadernoState> {
         'monto': monto,
         'descripcion': descripcion,
         'fecha': fecha,
-        'estado_pago': 'pendiente',
+        'estado_pago': estadoPago,
       },
     );
     await loadData(campanaId);
@@ -849,6 +850,7 @@ final historialDayProvider = FutureProvider.family<List<HistorialEntry>, (int, D
   ref,
   params,
 ) async {
+  ref.watch(dashboardRefreshTrigger);
   final campanaId = params.$1;
   final date = params.$2;
   final localDs = ref.read(campanaLocalDatasourceProvider);
@@ -877,11 +879,15 @@ final historialDayProvider = FutureProvider.family<List<HistorialEntry>, (int, D
     final time = fecha.contains('T')
         ? fecha.split('T')[1].substring(0, 5)
         : '--:--';
+    final descripcion = a['descripcion'] as String? ?? '';
+    final isIncident = descripcion.startsWith(kIncidentPrefix);
+    final detalle = isIncident ? descripcion.substring(kIncidentPrefix.length) : descripcion;
+    final partes = detalle.split(' · ');
     entries.add(
       HistorialEntry(
-        tipo: 'actividad',
-        titulo: 'Actividad',
-        descripcion: a['descripcion'] as String? ?? '',
+        tipo: isIncident ? 'incidencia' : 'actividad',
+        titulo: isIncident ? 'Incidencia: ${partes.first}' : partes.first,
+        descripcion: partes.skip(1).join(' · '),
         hora: time,
         isSynced: (a['is_synced'] as int? ?? 0) == 1,
       ),
@@ -897,9 +903,10 @@ final historialDayProvider = FutureProvider.family<List<HistorialEntry>, (int, D
     entries.add(
       HistorialEntry(
         tipo: tipo,
-        titulo: tipo == 'gasto' ? 'Gasto' : 'Ingreso',
-        descripcion:
-            '${t['descripcion'] ?? ''} - S/${((t['monto'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
+        titulo: (t['categoria'] as String?)?.isNotEmpty == true
+            ? t['categoria'] as String
+            : (tipo == 'gasto' ? 'Gasto' : 'Ingreso'),
+        descripcion: t['descripcion'] as String? ?? '',
         hora: time,
         monto: (t['monto'] as num?)?.toDouble(),
         isSynced: (t['is_synced'] as int? ?? 0) == 1,

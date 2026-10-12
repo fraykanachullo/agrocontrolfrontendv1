@@ -1,10 +1,31 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import '../../../../core/theme/app_colors.dart';
 import '../../../../core/providers/app_providers.dart';
-import '../widgets/activity_form.dart';
-import '../../../historial/presentation/widgets/timeline_widget.dart';
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/form_pieces.dart';
+import '../../../../core/widgets/glass.dart';
+import '../widgets/expense_sheet.dart';
+import '../widgets/record_sheets.dart';
+
+/// Tipos de registro del cuaderno: (tipo, nombre, icono, color).
+(String, IconData, Color) entryStyle(String tipo) => switch (tipo) {
+      'gasto' => ('Gasto', Icons.payments_outlined, AppColors.expense),
+      'ingreso' => ('Ingreso', Icons.savings_outlined, AppColors.positive),
+      'cosecha' => ('Cosecha', Icons.local_shipping_outlined, AppColors.warning),
+      'incidencia' => ('Incidencia', Icons.report_outlined, AppColors.error),
+      _ => ('Labor', Icons.agriculture_outlined, AppColors.info),
+    };
+
+const _filters = [
+  (null, 'Todos'),
+  ('gasto', 'Gastos'),
+  ('ingreso', 'Ingresos'),
+  ('actividad', 'Labores'),
+  ('incidencia', 'Incidencias'),
+  ('cosecha', 'Cosechas'),
+];
 
 class CuadernoScreen extends ConsumerStatefulWidget {
   final String campaignId;
@@ -16,378 +37,463 @@ class CuadernoScreen extends ConsumerStatefulWidget {
 }
 
 class _CuadernoScreenState extends ConsumerState<CuadernoScreen> {
-  String? _activeForm;
-  DateTime _selectedDate = DateTime.now();
+  DateTime _day = DateUtils.dateOnly(DateTime.now());
+  String? _filter;
 
-  bool get _isToday =>
-      _selectedDate.year == DateTime.now().year &&
-      _selectedDate.month == DateTime.now().month &&
-      _selectedDate.day == DateTime.now().day;
+  int get _campanaId => int.tryParse(widget.campaignId) ?? 0;
+  bool get _isToday => DateUtils.isSameDay(_day, DateTime.now());
 
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final campanaId = int.tryParse(widget.campaignId);
-      if (campanaId != null) {
-        ref.read(cuadernoProvider.notifier).loadData(campanaId);
-      }
-    });
+  void _moveDay(int delta) {
+    final next = _day.add(Duration(days: delta));
+    if (next.isAfter(DateTime.now())) return;
+    setState(() => _day = next);
   }
 
-  void _toggleForm(String type) {
-    setState(() => _activeForm = _activeForm == type ? null : type);
-  }
-
-  void _previousDay() {
-    setState(() {
-      _selectedDate = _selectedDate.subtract(const Duration(days: 1));
-      _activeForm = null;
-    });
-  }
-
-  void _nextDay() {
-    final now = DateTime.now();
-    final next = _selectedDate.add(const Duration(days: 1));
-    if (!next.isAfter(DateTime(now.year, now.month, now.day))) {
-      setState(() {
-        _selectedDate = next;
-        _activeForm = null;
-      });
-    }
-  }
-
-  Future<void> _pickDate() async {
+  Future<void> _pickDay() async {
     final picked = await showDatePicker(
       context: context,
-      initialDate: _selectedDate,
+      initialDate: _day,
       firstDate: DateTime(2020),
       lastDate: DateTime.now(),
     );
-    if (picked != null) {
-      setState(() {
-        _selectedDate = picked;
-        _activeForm = null;
-      });
+    if (picked != null) setState(() => _day = DateUtils.dateOnly(picked));
+  }
+
+  void _open(String tipo) {
+    final nombre = ref.read(activeCampanaProvider)?.nombre ?? '';
+    switch (tipo) {
+      case 'gasto':
+        showExpenseSheet(context, campanaId: _campanaId, campanaNombre: nombre, date: _day);
+      case 'ingreso':
+        showIncomeSheet(context, campanaId: _campanaId, campanaNombre: nombre, date: _day);
+      case 'incidencia':
+        showIncidentSheet(context, campanaId: _campanaId, campanaNombre: nombre, date: _day);
+      default:
+        showLaborSheet(context, campanaId: _campanaId, campanaNombre: nombre, date: _day);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final campanaId = int.tryParse(widget.campaignId) ?? 0;
+    final entries = ref.watch(historialDayProvider((_campanaId, _day)));
+    final list = entries.value ?? const <HistorialEntry>[];
+    final filtered = _filter == null ? list : list.where((e) => e.tipo == _filter).toList();
 
-    return Column(
+    return ListView(
+      padding: EdgeInsets.fromLTRB(20, 4, 20, 24 + MediaQuery.paddingOf(context).bottom),
       children: [
-        Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildDateNavigator(context),
-                const SizedBox(height: 16),
-                _buildActionGrid(context),
-                const SizedBox(height: 16),
-
-                if (_activeForm != null) ...[
-                  ActivityForm(type: _activeForm!, campanaId: campanaId),
-                  const SizedBox(height: 16),
-                ],
-
-                _buildSectionHeader(context),
-                const SizedBox(height: 10),
-
-                TimelineWidget(
-                  campaignId: widget.campaignId,
-                  selectedDate: _selectedDate,
-                ),
-              ],
+        _DayNavigator(
+          day: _day,
+          isToday: _isToday,
+          campaignName: ref.watch(activeCampanaProvider)?.nombre,
+          onPrev: () => _moveDay(-1),
+          onNext: _isToday ? null : () => _moveDay(1),
+          onPick: _pickDay,
+          onToday: () => setState(() => _day = DateUtils.dateOnly(DateTime.now())),
+        ),
+        const SizedBox(height: 16),
+        _ActionGrid(onSelected: _open),
+        const SizedBox(height: 16),
+        _DaySummary(entries: list, isToday: _isToday),
+        const SizedBox(height: 24),
+        SectionHeader(title: 'Registros del día (${list.length})'),
+        SizedBox(
+          height: 36,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: _filters.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 8),
+            itemBuilder: (_, i) => MiniChip(
+              label: _filters[i].$2,
+              selected: _filter == _filters[i].$1,
+              onTap: () => setState(() => _filter = _filters[i].$1),
             ),
           ),
         ),
-        _buildDailySummaryFooter(context),
+        const SizedBox(height: 14),
+        if (entries.isLoading && list.isEmpty)
+          const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()))
+        else if (filtered.isEmpty)
+          GlassCard(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              children: [
+                Icon(Icons.menu_book_outlined, color: AppColors.textSubtle, size: 32),
+                const SizedBox(height: 8),
+                Text(
+                  list.isEmpty ? 'Nada registrado este día' : 'Sin registros de este tipo',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 2),
+                Text('Usa los botones de arriba para anotar', style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
+          )
+        else
+          for (final (i, e) in filtered.indexed) _TimelineItem(entry: e, isLast: i == filtered.length - 1),
       ],
     );
   }
+}
 
-  // ═══════════════════════════════════════════
-  //  1. COMPACT DATE NAVIGATOR
-  // ═══════════════════════════════════════════
+// ═══════════════════════════════════════════════
+//  Secciones
+// ═══════════════════════════════════════════════
 
-  Widget _buildDateNavigator(BuildContext context) {
-    final dateLabel = _isToday
-        ? 'Hoy, ${DateFormat('EEEE d MMM', 'es').format(_selectedDate)}'
-        : DateFormat('EEEE d \'de\' MMMM', 'es').format(_selectedDate);
-    final formatted = dateLabel[0].toUpperCase() + dateLabel.substring(1);
+class _DayNavigator extends StatelessWidget {
+  final DateTime day;
+  final bool isToday;
+  final String? campaignName;
+  final VoidCallback onPrev;
+  final VoidCallback? onNext;
+  final VoidCallback onPick;
+  final VoidCallback onToday;
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.surfaceVariant),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 3, offset: const Offset(0, 1))],
-      ),
+  const _DayNavigator({
+    required this.day,
+    required this.isToday,
+    required this.campaignName,
+    required this.onPrev,
+    required this.onNext,
+    required this.onPick,
+    required this.onToday,
+  });
+
+  static int _weekOfYear(DateTime d) {
+    final dayOfYear = int.parse(DateFormat('D').format(d));
+    return ((dayOfYear - d.weekday + 10) / 7).floor();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final label = isToday
+        ? 'Hoy, ${DateFormat('d MMM yyyy', 'es').format(day)}'
+        : toBeginningOfSentenceCase(DateFormat('EEEE d MMM', 'es').format(day));
+
+    return GlassCard(
+      radius: 20,
+      padding: const EdgeInsets.all(8),
       child: Row(
         children: [
-          IconButton(
-            onPressed: _previousDay,
-            icon: const Icon(Icons.chevron_left, size: 22),
-            color: AppColors.onSurfaceVariant,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-          ),
+          GlassCircleButton(icon: Icons.chevron_left_rounded, tooltip: 'Día anterior', size: 44, onPressed: onPrev),
           Expanded(
-            child: Column(
-              children: [
-                Text(
-                  formatted,
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-                  textAlign: TextAlign.center,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: onPick,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.calendar_today_rounded, size: 15, color: AppColors.accent),
+                        const SizedBox(width: 6),
+                        Flexible(child: Text(label, style: text.titleSmall, overflow: TextOverflow.ellipsis)),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    if (isToday)
+                      Text(
+                        'Semana ${_weekOfYear(day)}${campaignName == null ? '' : ' · $campaignName'}',
+                        style: text.labelSmall,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      )
+                    else
+                      GestureDetector(
+                        onTap: onToday,
+                        child: Text(
+                          'Volver a hoy',
+                          style: text.labelSmall?.copyWith(color: AppColors.accent, fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                  ],
                 ),
-                if (!_isToday)
-                  GestureDetector(
-                    onTap: () => setState(() {
-                      _selectedDate = DateTime.now();
-                      _activeForm = null;
-                    }),
-                    child: Text('Ir a hoy', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: AppColors.primary, fontWeight: FontWeight.w600)),
-                  ),
-              ],
+              ),
             ),
           ),
-          IconButton(
-            onPressed: _nextDay,
-            icon: const Icon(Icons.chevron_right, size: 22),
-            color: _isToday ? AppColors.outlineVariant : AppColors.onSurfaceVariant,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-          ),
-          const SizedBox(width: 4),
-          GestureDetector(
-            onTap: _pickDate,
-            child: Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: AppColors.primaryContainer.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(Icons.calendar_today, size: 18, color: AppColors.primary),
+          Opacity(
+            opacity: onNext == null ? 0.35 : 1,
+            child: GlassCircleButton(
+              icon: Icons.chevron_right_rounded,
+              tooltip: 'Día siguiente',
+              size: 44,
+              onPressed: onNext ?? () {},
             ),
           ),
         ],
       ),
     );
   }
+}
 
-  // ═══════════════════════════════════════════
-  //  2. ACTION GRID — 2×2 large touch buttons
-  // ═══════════════════════════════════════════
+/// Cuatro botones grandes 2×2 para anotar.
+class _ActionGrid extends StatelessWidget {
+  final ValueChanged<String> onSelected;
 
-  Widget _buildActionGrid(BuildContext context) {
+  const _ActionGrid({required this.onSelected});
+
+  @override
+  Widget build(BuildContext context) {
+    final actions = [
+      ('actividad', 'Labor', 'Faenas de campo'),
+      ('gasto', 'Gasto', 'Jornal e insumo'),
+      ('ingreso', 'Ingreso', 'Ventas y otros'),
+      ('incidencia', 'Incidencia', 'Plaga o clima'),
+    ];
+    final text = Theme.of(context).textTheme;
+
+    return GridView.count(
+      crossAxisCount: 2,
+      shrinkWrap: true,
+      padding: EdgeInsets.zero,
+      physics: const NeverScrollableScrollPhysics(),
+      mainAxisSpacing: 10,
+      crossAxisSpacing: 10,
+      childAspectRatio: 2.15,
+      children: [
+        for (final (tipo, label, caption) in actions)
+          Builder(builder: (context) {
+            final (_, icon, color) = entryStyle(tipo);
+            return GlassCard(
+              radius: 20,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              onTap: () => onSelected(tipo),
+              child: Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(color: color.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(14)),
+                    child: Icon(icon, color: color, size: 23),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(label, style: text.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
+                        Text(caption, style: text.labelSmall, maxLines: 1, overflow: TextOverflow.ellipsis),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+      ],
+    );
+  }
+}
+
+class _DaySummary extends StatelessWidget {
+  final List<HistorialEntry> entries;
+  final bool isToday;
+
+  const _DaySummary({required this.entries, required this.isToday});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    double sum(String tipo) => entries.where((e) => e.tipo == tipo).fold(0, (s, e) => s + (e.monto ?? 0));
+    final gastos = sum('gasto');
+    final ingresos = sum('ingreso');
+    final labores = entries.where((e) => e.tipo == 'actividad').toList();
+    final incidencias = entries.where((e) => e.tipo == 'incidencia').length;
+
+    return GlassCard(
+      highlight: true,
+      radius: 22,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            isToday ? 'RESUMEN DE HOY' : 'RESUMEN DEL DÍA',
+            style: text.labelSmall?.copyWith(letterSpacing: 1.2, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(child: _Stat(icon: Icons.trending_down_rounded, label: 'Gastos', value: gastos, color: AppColors.expense)),
+              Container(width: 1, height: 40, color: AppColors.outlineVariant),
+              const SizedBox(width: 14),
+              Expanded(child: _Stat(icon: Icons.trending_up_rounded, label: 'Ingresos', value: ingresos, color: AppColors.positive)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(color: AppColors.accentSoft, borderRadius: BorderRadius.circular(14)),
+            child: Row(
+              children: [
+                Icon(Icons.checklist_rounded, size: 18, color: AppColors.info),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    labores.isEmpty
+                        ? 'Sin labores registradas'
+                        : '${labores.length} labor${labores.length == 1 ? '' : 'es'}: ${labores.map((e) => e.titulo).toSet().join(', ')}',
+                    style: text.bodySmall?.copyWith(color: AppColors.text),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (incidencias > 0) ...[
+                  const SizedBox(width: 8),
+                  Icon(Icons.report_outlined, size: 16, color: AppColors.error),
+                  const SizedBox(width: 2),
+                  Text('$incidencias', style: text.labelMedium?.copyWith(color: AppColors.error, fontWeight: FontWeight.w800)),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Stat extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final double value;
+  final Color color;
+
+  const _Stat({required this.icon, required this.label, required this.value, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Expanded(
-              child: _buildGridButton(
-                context,
-                emoji: '🛠️',
-                label: 'Registrar',
-                sublabel: 'Labor / Actividad',
-                color: AppColors.primaryContainer,
-                isActive: _activeForm == 'Actividad',
-                onTap: () => _toggleForm('Actividad'),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _buildGridButton(
-                context,
-                emoji: '💸',
-                label: 'Registrar',
-                sublabel: 'Gasto / Egreso',
-                color: AppColors.errorContainer,
-                isActive: _activeForm == 'Gasto',
-                onTap: () => _toggleForm('Gasto'),
-              ),
-            ),
+            Icon(icon, size: 15, color: color),
+            const SizedBox(width: 4),
+            Text(label, style: Theme.of(context).textTheme.labelMedium),
           ],
         ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: _buildGridButton(
-                context,
-                emoji: '💰',
-                label: 'Ingreso',
-                sublabel: 'Directo',
-                color: const Color(0xFFE8F5E9),
-                isActive: _activeForm == 'Ingreso',
-                onTap: () => _toggleForm('Ingreso'),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _buildGridButton(
-                context,
-                emoji: '📸',
-                label: 'Adjuntar',
-                sublabel: 'Foto / Boleta',
-                color: AppColors.surfaceContainerHigh,
-                isActive: false,
-                onTap: () => _toggleForm('Actividad'),
-              ),
-            ),
-          ],
+        const SizedBox(height: 2),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(formatSoles(value), style: AppTheme.display(fontSize: 20, color: value == 0 ? AppColors.textMuted : color)),
         ),
       ],
     );
   }
+}
 
-  Widget _buildGridButton(
-    BuildContext context, {
-    required String emoji,
-    required String label,
-    required String sublabel,
-    required Color color,
-    required bool isActive,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        constraints: const BoxConstraints(minHeight: 64),
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
-        decoration: BoxDecoration(
-          color: isActive ? color : AppColors.surfaceContainerLowest,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: isActive ? AppColors.primary : AppColors.surfaceVariant,
-            width: isActive ? 2 : 1,
-          ),
-          boxShadow: isActive
-              ? [BoxShadow(color: AppColors.primary.withValues(alpha: 0.12), blurRadius: 8, offset: const Offset(0, 2))]
-              : [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 3, offset: const Offset(0, 1))],
-        ),
-        child: Row(
-          children: [
-            Text(emoji, style: const TextStyle(fontSize: 28)),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(label, style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: isActive ? AppColors.primary : AppColors.onSurface,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                  )),
-                  Text(sublabel, style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppColors.onSurfaceVariant,
-                    fontSize: 11,
-                  )),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+/// Registro en la línea de tiempo: punto + línea a la izquierda, tarjeta a la derecha.
+class _TimelineItem extends StatelessWidget {
+  final HistorialEntry entry;
+  final bool isLast;
 
-  // ═══════════════════════════════════════════
-  //  3. SECTION HEADER
-  // ═══════════════════════════════════════════
+  const _TimelineItem({required this.entry, required this.isLast});
 
-  Widget _buildSectionHeader(BuildContext context) {
-    final campanaId = int.tryParse(widget.campaignId) ?? 0;
-    final entriesAsync = ref.watch(historialDayProvider((campanaId, _selectedDate)));
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final (tipoLabel, icon, color) = entryStyle(entry.tipo);
+    final monto = entry.monto;
+    final syncColor = entry.isSynced ? AppColors.accent : AppColors.warning;
 
-    return entriesAsync.when(
-      loading: () => Row(
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('Movimientos del día', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
-        ],
-      ),
-      error: (_, __) => Row(
-        children: [
-          Text('Movimientos del día', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
-        ],
-      ),
-      data: (entries) {
-        final dayLabel = DateFormat('d MMM', 'es').format(_selectedDate);
-        return Row(
-          children: [
-            Text('Movimientos del día', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
-            const SizedBox(width: 8),
-            Text('($dayLabel)', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.onSurfaceVariant)),
-            const Spacer(),
-            Text('${entries.length} registro${entries.length != 1 ? 's' : ''}', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: AppColors.onSurfaceVariant)),
-          ],
-        );
-      },
-    );
-  }
-
-  // ═══════════════════════════════════════════
-  //  4. DAILY SUMMARY FOOTER
-  // ═══════════════════════════════════════════
-
-  Widget _buildDailySummaryFooter(BuildContext context) {
-    final campanaId = int.tryParse(widget.campaignId) ?? 0;
-    final entriesAsync = ref.watch(historialDayProvider((campanaId, _selectedDate)));
-
-    return entriesAsync.when(
-      loading: () => const SizedBox.shrink(),
-      error: (_, __) => const SizedBox.shrink(),
-      data: (entries) {
-        if (entries.isEmpty) return const SizedBox.shrink();
-
-        final gastos = entries.where((e) => e.tipo == 'gasto').fold<double>(0, (sum, e) => sum + (e.monto ?? 0));
-        final ingresos = entries.where((e) => e.tipo == 'ingreso').fold<double>(0, (sum, e) => sum + (e.monto ?? 0));
-
-        return Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            color: AppColors.surfaceContainerLowest,
-            border: Border(top: BorderSide(color: AppColors.surfaceVariant.withValues(alpha: 0.5))),
-            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 4, offset: const Offset(0, -2))],
-          ),
-          child: SafeArea(
-            top: false,
-            child: Row(
+          SizedBox(
+            width: 28,
+            child: Column(
               children: [
-                if (gastos > 0) ...[
-                  Icon(Icons.trending_down, size: 16, color: AppColors.error),
-                  const SizedBox(width: 4),
-                  Text('Gastos: ', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.onSurfaceVariant)),
-                  Text('S/ ${gastos.toStringAsFixed(0)}', style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700, color: AppColors.error)),
-                ],
-                if (gastos > 0 && ingresos > 0) ...[
-                  const SizedBox(width: 16),
-                  Container(width: 1, height: 14, color: AppColors.outlineVariant),
-                  const SizedBox(width: 16),
-                ],
-                if (ingresos > 0) ...[
-                  Icon(Icons.trending_up, size: 16, color: AppColors.primary),
-                  const SizedBox(width: 4),
-                  Text('Ingresos: ', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.onSurfaceVariant)),
-                  Text('S/ ${ingresos.toStringAsFixed(0)}', style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700, color: AppColors.primary)),
-                ],
-                if (gastos == 0 && ingresos == 0)
-                  Text('Sin movimientos hoy', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.onSurfaceVariant)),
+                const SizedBox(height: 18),
+                Container(
+                  width: 12,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: AppColors.background, width: 2),
+                    boxShadow: [BoxShadow(color: color.withValues(alpha: 0.5), blurRadius: 8)],
+                  ),
+                ),
+                if (!isLast) Expanded(child: Container(width: 2, color: AppColors.outlineVariant)),
               ],
             ),
           ),
-        );
-      },
+          const SizedBox(width: 6),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: GlassCard(
+                radius: 18,
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(color: color.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(999)),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(icon, size: 13, color: color),
+                              const SizedBox(width: 4),
+                              Text(tipoLabel, style: text.labelSmall?.copyWith(color: color, fontWeight: FontWeight.w800)),
+                            ],
+                          ),
+                        ),
+                        if (entry.hora != '--:--') ...[
+                          const SizedBox(width: 8),
+                          Text(entry.hora, style: text.labelSmall),
+                        ],
+                        const Spacer(),
+                        Container(width: 6, height: 6, decoration: BoxDecoration(color: syncColor, shape: BoxShape.circle)),
+                        const SizedBox(width: 4),
+                        Text(
+                          entry.isSynced ? 'Sincronizado' : 'Pendiente',
+                          style: text.labelSmall?.copyWith(fontSize: 10, color: syncColor),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(entry.titulo, style: text.titleSmall),
+                              if (entry.descripcion.isNotEmpty) ...[
+                                const SizedBox(height: 2),
+                                Text(entry.descripcion, style: text.bodySmall),
+                              ],
+                            ],
+                          ),
+                        ),
+                        if (monto != null && monto > 0) ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            '${entry.tipo == 'gasto' ? '-' : '+'}${formatSoles(monto)}',
+                            style: AppTheme.display(fontSize: 14, color: color),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

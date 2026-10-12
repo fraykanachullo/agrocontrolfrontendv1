@@ -73,7 +73,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         children: [
           Expanded(
             child: Container(
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 color: AppColors.surfaceContainer,
               ),
               child: Stack(
@@ -196,7 +196,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               ),
             ],
           ),
-          child: const Icon(
+          child: Icon(
             Icons.eco,
             size: 32,
             color: AppColors.onPrimaryContainer,
@@ -362,7 +362,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               setState(() => _rememberMe = value ?? false);
             },
             activeColor: AppColors.primaryContainer,
-            side: const BorderSide(color: AppColors.outlineVariant),
+            side: BorderSide(color: AppColors.outlineVariant),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(4),
             ),
@@ -386,7 +386,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       child: ElevatedButton(
         onPressed: isLoading ? null : _handleLogin,
         child: isLoading
-            ? const SizedBox(
+            ? SizedBox(
                 width: 24,
                 height: 24,
                 child: CircularProgressIndicator(
@@ -433,7 +433,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
               ),
               const SizedBox(width: 4),
-              const Icon(
+              Icon(
                 Icons.arrow_forward,
                 size: 16,
                 color: AppColors.primary,

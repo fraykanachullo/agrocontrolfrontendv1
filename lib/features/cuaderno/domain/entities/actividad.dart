@@ -1,3 +1,7 @@
+/// Las incidencias (plagas, heladas…) se guardan por ahora como actividades
+/// con este prefijo, hasta tener su propia tabla (RF-CUA-08).
+const kIncidentPrefix = '[Incidencia] ';
+
 class Actividad {
   final int? id;
   final int campanaId;
@@ -14,6 +18,8 @@ class Actividad {
     this.createdAt,
     this.isSynced = false,
   });
+
+  bool get isIncident => descripcion.startsWith(kIncidentPrefix);
 
   factory Actividad.fromMap(Map<String, dynamic> map) {
     return Actividad(
