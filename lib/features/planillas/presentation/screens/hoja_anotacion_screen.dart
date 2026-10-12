@@ -309,7 +309,9 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
 
   // ── Guardado ──
 
-  Map<String, dynamic> _payload() => {
+  Map<String, dynamic> _payload({int? despachoId}) => {
+        // Enlace al despacho creado al cerrar la hoja (para su pantalla de detalle).
+        'despacho_id': ?(despachoId ?? widget.planilla?.payload['despacho_id'] as int?),
         'numero_hoja': widget.planilla?.payload['numero_hoja'] ?? widget.numeroHoja,
         'placa': _placa.toUpperCase(),
         'comisionista': _comisionista,
@@ -327,7 +329,7 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
         'gran_total': _total,
       };
 
-  Future<void> _persistir({String? estado}) async {
+  Future<void> _persistir({String? estado, int? despachoId}) async {
     final now = DateTime.now().toIso8601String();
     final existing = widget.planilla;
     final planilla = Planilla(
@@ -342,7 +344,7 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
       notas: existing?.notas,
       totalUnidades: _total,
       estado: estado ?? existing?.estado ?? 'guardada',
-      payload: _payload(),
+      payload: _payload(despachoId: despachoId),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     );
@@ -394,10 +396,12 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
     try {
-      await ref.read(cosechasProvider.notifier).addCosecha(
+      final despachoId = await ref.read(cosechasProvider.notifier).addCosecha(
         widget.campanaId,
         tipoVenta: 'mercado',
         modoCosecha: 'matricial_filas',
+        // Se liquida por java (precio × bultos), no por kilo.
+        tipoCalculoVenta: 'por_unidad',
         unidadEmpaque: 'java',
         cantidadUnidades: _total,
         totalBultos: _total,
@@ -405,9 +409,10 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
         mercadoDestino: _destino,
         fechaEnvio: DateTime(_fecha.year, _fecha.month, _fecha.day, DateTime.now().hour, DateTime.now().minute)
             .toIso8601String(),
+        // Por columna y luego por fila: así las calidades conservan su orden.
         detalles: [
-          for (var f = 0; f < _celdas.length; f++)
-            for (var c = 0; c < _calidades.length; c++)
+          for (var c = 0; c < _calidades.length; c++)
+            for (var f = 0; f < _celdas.length; f++)
               if (_celdas[f][c] > 0)
                 {
                   'categoria': _calidades[c].nombre,
@@ -417,7 +422,7 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
                 },
         ],
       );
-      await _persistir(estado: 'enviada');
+      await _persistir(estado: 'enviada', despachoId: despachoId);
       ref.read(dashboardRefreshTrigger.notifier).update((s) => s + 1);
       HapticFeedback.mediumImpact();
       navigator.pop(true);

@@ -194,6 +194,30 @@ class CampanaLocalDatasource {
 
   // ── Gastos por Categoría ──
 
+  /// Gastos, ingresos y cosechas de todas las campañas en una sola consulta.
+  Future<List<Map<String, dynamic>>> getResumenCampanas() async {
+    final db = await AppDatabase.database;
+    return await db.rawQuery('''
+      SELECT c.id AS campana_id,
+        COALESCE((SELECT SUM(monto) FROM transacciones t WHERE t.campana_id = c.id AND t.tipo = 'gasto'), 0) AS gastos,
+        COALESCE((SELECT SUM(monto) FROM transacciones t WHERE t.campana_id = c.id AND t.tipo = 'ingreso'), 0) AS ingresos_directos,
+        COALESCE((SELECT SUM(monto_neto_final) FROM cosechas k WHERE k.campana_id = c.id AND k.estado = 'entregado'), 0) AS ventas,
+        (SELECT COUNT(*) FROM cosechas k WHERE k.campana_id = c.id) AS cosechas,
+        (SELECT COUNT(*) FROM cosechas k WHERE k.campana_id = c.id AND k.estado = 'pendiente') AS por_liquidar
+      FROM campanas c
+    ''');
+  }
+
+  Future<List<Map<String, dynamic>>> getGastosPorEtapa(int campanaId) async {
+    final db = await AppDatabase.database;
+    return await db.rawQuery(
+      "SELECT COALESCE(etapa, 'Sin etapa') as etapa, SUM(monto) as total "
+      "FROM transacciones WHERE campana_id = ? AND tipo = 'gasto' "
+      "GROUP BY COALESCE(etapa, 'Sin etapa') ORDER BY total DESC",
+      [campanaId],
+    );
+  }
+
   Future<List<Map<String, dynamic>>> getGastosPorCategoria(int campanaId) async {
     final db = await AppDatabase.database;
     return await db.rawQuery(

@@ -30,7 +30,25 @@ const expenseCategories = <(String, String, IconData)>[
 const _labores = ['Siembra', 'Deshierbe', 'Fumigación', 'Riego', 'Abonamiento', 'Cosecha', 'Amarre / estacado'];
 const _extrasSugeridos = ['Pasaje', 'Agua', 'Gaseosas', 'Fruta', 'Refrigerio'];
 
-/// Formas de pago de un gasto: (índice, nombre, icono, estado guardado).
+/// Etapas del cultivo (RF-CUA-02) para ver en qué etapa se va la plata.
+const expenseStages = <(String, String, IconData)>[
+  ('Preparación', 'Preparación', Icons.landscape_rounded),
+  ('Siembra', 'Siembra', Icons.spa_rounded),
+  ('Mantenimiento', 'Mantenimiento', Icons.eco_rounded),
+  ('Cosecha', 'Cosecha', Icons.shopping_basket_rounded),
+];
+
+/// Etapa sugerida según la categoría (y la labor, en jornales).
+String suggestedStage(String category, {String? labor}) => switch (category) {
+      'Maquinaria' || 'Alquiler de terreno' => 'Preparación',
+      'Semilla / plantín' => 'Siembra',
+      'Envases' => 'Cosecha',
+      laborCategory when labor == 'Siembra' => 'Siembra',
+      laborCategory when labor == 'Cosecha' => 'Cosecha',
+      _ => 'Mantenimiento',
+    };
+
+/// Formas de pago de un gasto: (índice, nombre, icono).
 const _formasPago = <(int, String, IconData)>[
   (0, 'Efectivo', Icons.wallet_rounded),
   (1, 'Yape / Plin', Icons.smartphone_rounded),
@@ -96,11 +114,13 @@ class _ExpenseSheetState extends ConsumerState<ExpenseSheet> {
   final List<_Extra> _extras = [];
 
   int _payment = 0;
+  String? _stage; // null = se usa la sugerida
   final _noteCtrl = TextEditingController();
   File? _photo;
   bool _saving = false;
 
   bool get _isLabor => _category == laborCategory;
+  String get _effectiveStage => _stage ?? suggestedStage(_category, labor: _labor);
   double get _dailyPay => AmountInput.parse(_payCtrl);
   double get _laborSubtotal => _dailyPay * _workers * _days;
   double get _extrasTotal => _extras.fold(0, (s, e) => s + e.value);
@@ -148,7 +168,8 @@ class _ExpenseSheetState extends ConsumerState<ExpenseSheet> {
             monto: _total,
             descripcion: _description(),
             fecha: DateTime(_date.year, _date.month, _date.day, now.hour, now.minute).toIso8601String(),
-            estadoPago: _payment == 2 ? 'pendiente' : 'pagado',
+            estadoPago: _payment == 2 ? 'por_pagar' : 'pagado',
+            etapa: _effectiveStage,
           );
       if (_photo != null) {
         await EvidenciaLocalDatasource().saveEvidencia(
@@ -207,10 +228,17 @@ class _ExpenseSheetState extends ConsumerState<ExpenseSheet> {
           AmountInput(controller: _amountCtrl, caption: 'MONTO DEL GASTO', onChanged: () => setState(() {})),
         ],
         const SizedBox(height: 22),
-        StepTitle(number: _isLabor ? 4 : 3, title: '¿Cómo pagaste?'),
+        StepTitle(number: _isLabor ? 4 : 3, title: 'Etapa del cultivo'),
+        OptionTiles<String>(
+          options: expenseStages,
+          selected: _effectiveStage,
+          onSelected: (v) => setState(() => _stage = v),
+        ),
+        const SizedBox(height: 22),
+        StepTitle(number: _isLabor ? 5 : 4, title: '¿Cómo pagaste?'),
         OptionTiles<int>(options: _formasPago, selected: _payment, onSelected: (v) => setState(() => _payment = v)),
         const SizedBox(height: 22),
-        StepTitle(number: _isLabor ? 5 : 4, title: 'Nota y comprobante (opcional)'),
+        StepTitle(number: _isLabor ? 6 : 5, title: 'Nota y comprobante (opcional)'),
         TextField(
           controller: _noteCtrl,
           textCapitalization: TextCapitalization.sentences,
@@ -220,7 +248,7 @@ class _ExpenseSheetState extends ConsumerState<ExpenseSheet> {
         const SizedBox(height: 10),
         PhotoPickerTile(photo: _photo, onPick: _pickPhoto),
         const SizedBox(height: 18),
-        RecordSummary(text: '${category.$2} · ${_description()}'),
+        RecordSummary(text: '${category.$2} · $_effectiveStage · ${_description()}'),
       ],
     );
   }

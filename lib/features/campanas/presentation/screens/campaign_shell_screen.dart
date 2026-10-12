@@ -14,7 +14,7 @@ const _tabs = [
 
 /// Pantallas ya rediseñadas: su contenido pasa por detrás de la barra
 /// flotante y reservan el espacio final con `MediaQuery.paddingOf`.
-const _extendsBehindDock = {'/inicio', '/cuaderno', '/resumen'};
+const _extendsBehindDock = {'/inicio', '/cuaderno', '/cosechas', '/resumen'};
 
 class CampaignShellScreen extends StatelessWidget {
   final Widget child;

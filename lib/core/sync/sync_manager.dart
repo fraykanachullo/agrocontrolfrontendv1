@@ -201,8 +201,9 @@ class SyncManager {
       await db.insert('transacciones', {
         'id': t['id'],
         'campana_id': t['campana_id'],
-        'tipo': t['tipo'],
+        'tipo': t['tipo'] == 'egreso' ? 'gasto' : t['tipo'],
         'categoria': t['categoria'],
+        'etapa': t['etapa'],
         'monto': t['monto'],
         'descripcion': t['descripcion'],
         'fecha': t['fecha'],
