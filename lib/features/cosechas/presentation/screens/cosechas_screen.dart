@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/providers/app_providers.dart';
+import '../../../campanas/presentation/campaign_display.dart';
 import '../../../../core/providers/despacho_aviso_provider.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_theme.dart';
@@ -50,7 +51,6 @@ class _CosechasScreenState extends ConsumerState<CosechasScreen> {
           context,
           campanaId: _campanaId,
           cultivo: campana?.cultivo ?? 'Tomate',
-          tipo: 'matricial',
           numeroHoja: ref.read(planillasProvider).planillas.length + 1,
         );
       case SaleMode.ventaEnCampo:
@@ -77,13 +77,16 @@ class _CosechasScreenState extends ConsumerState<CosechasScreen> {
       children: [
         _Summary(state: cosechas),
         const SizedBox(height: 14),
-        AgroActionButton(
-          label: 'Nueva venta o despacho',
-          icon: Icons.add_circle_rounded,
-          primary: true,
-          height: 56,
-          onPressed: _nuevaVenta,
-        ),
+        if (ref.watch(activeCampanaProvider) case final campana? when campana.isClosed)
+          ClosedCampaignNotice(campana: campana)
+        else
+          AgroActionButton(
+            label: 'Nueva venta o despacho',
+            icon: Icons.add_circle_rounded,
+            primary: true,
+            height: 56,
+            onPressed: _nuevaVenta,
+          ),
         const SizedBox(height: 10),
         GlassCard(
           radius: 18,

@@ -58,3 +58,8 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  # Fuentes dentro de la app (google_fonts las busca aquí primero): así se
+  # ven igual sin internet en el campo.
+  assets:
+    - assets/google_fonts/

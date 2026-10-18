@@ -23,8 +23,11 @@ class ThemeModeNotifier extends StateNotifier<ThemeMode> {
   }
 
   /// Alterna entre claro y oscuro partiendo del brillo que se ve ahora.
-  Future<void> toggle(Brightness current) async {
-    state = current == Brightness.dark ? ThemeMode.light : ThemeMode.dark;
+  Future<void> toggle(Brightness current) =>
+      set(current == Brightness.dark ? ThemeMode.light : ThemeMode.dark);
+
+  Future<void> set(ThemeMode mode) async {
+    state = mode;
     try {
       await _storage.write(key: _storageKey, value: state.name);
     } catch (_) {}

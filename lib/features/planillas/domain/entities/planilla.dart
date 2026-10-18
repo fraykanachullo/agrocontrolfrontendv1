@@ -7,7 +7,7 @@ class Planilla {
   final String uuidLocal;
   final int campanaId;
   final String cultivo;
-  final String tipo; // matricial | por_categorias | peso_directo
+  final String tipo; // matricial (la hoja de anotación)
   final String fecha;
   final String? mercado;
   final String? transportista;
@@ -38,13 +38,6 @@ class Planilla {
     required this.updatedAt,
     this.isSynced = false,
   });
-
-  String get tipoLabel => switch (tipo) {
-    'matricial' => 'Hoja Matricial',
-    'por_categorias' => 'Categorías y Marcas',
-    'peso_directo' => 'Pesaje Directo',
-    _ => 'Hoja',
-  };
 
   Map<String, dynamic> toMap() => {
     'uuid_local': uuidLocal,

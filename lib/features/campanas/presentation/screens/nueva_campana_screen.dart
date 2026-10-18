@@ -4,12 +4,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/providers/app_providers.dart';
+import '../../../../core/providers/topo_provider.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/utils/ubicacion.dart';
 import '../../../../core/widgets/form_pieces.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../../cuaderno/presentation/widgets/expense_sheet.dart' show suggestedStage;
 import '../../../terrenos/domain/terreno.dart';
+import '../../../terrenos/presentation/widgets/ubicacion_card.dart';
 import '../../data/repositories/campana_repository_impl.dart' show kLocalUserId;
 import '../campaign_display.dart';
 
@@ -339,7 +341,9 @@ class _NuevaCampanaScreenState extends ConsumerState<NuevaCampanaScreen> {
                 Padding(
                   padding: const EdgeInsets.only(top: 6, left: 4),
                   child: Text(
-                    'El terreno tiene ${_fmtArea(areaTerreno)} ${_unidadCorta(unidad, areaTerreno)}. Déjalo vacío si siembras todo.',
+                    'El terreno tiene ${_fmtArea(areaTerreno)} ${_unidadCorta(unidad, areaTerreno)}'
+                    '${unidad == 'topo' ? ' (≈ ${aHectareas(areaTerreno, unidad, ref.watch(m2PorTopoProvider)).toStringAsFixed(2)} ha)' : ''}'
+                    '. Déjalo vacío si siembras todo.',
                     style: text.bodySmall,
                   ),
                 ),
@@ -484,7 +488,7 @@ class _NuevaCampanaScreenState extends ConsumerState<NuevaCampanaScreen> {
             child: Text('La unidad queda fija para comparar campañas.', style: text.bodySmall),
           ),
           const SizedBox(height: 14),
-          _UbicacionCard(
+          UbicacionCard(
             lat: _lat,
             lng: _lng,
             precision: _precision,
@@ -614,73 +618,6 @@ class _IconBox extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
       ),
       child: Icon(icon, color: AppColors.accent),
-    );
-  }
-}
-
-/// Ubicación del terreno con el GPS del teléfono (sin mapas inventados:
-/// solo las coordenadas reales y un botón para abrirlas en Google Maps).
-class _UbicacionCard extends StatelessWidget {
-  final double? lat;
-  final double? lng;
-  final double? precision;
-  final bool buscando;
-  final VoidCallback onMarcar;
-
-  const _UbicacionCard({required this.lat, required this.lng, required this.precision, required this.buscando, required this.onMarcar});
-
-  @override
-  Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
-    final marcada = lat != null && lng != null;
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.track.withValues(alpha: AppColors.palette.isDark ? 0.35 : 0.6),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(marcada ? Icons.location_on_rounded : Icons.location_searching_rounded, color: AppColors.accent),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(marcada ? 'Ubicación marcada' : 'Ubicación del terreno', style: text.titleSmall),
-                    Text(
-                      marcada
-                          ? '${formatoCoordenadas(lat!, lng!)}${precision == null ? '' : ' · ±${precision!.round()} m'}'
-                          : 'Párate en el terreno. Funciona sin internet.',
-                      style: text.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: AgroActionButton(
-                  label: buscando ? 'Buscando señal…' : (marcada ? 'Volver a marcar' : 'Marcar ubicación aquí'),
-                  icon: Icons.my_location_rounded,
-                  height: 46,
-                  onPressed: buscando ? () {} : onMarcar,
-                ),
-              ),
-              if (marcada) ...[
-                const SizedBox(width: 8),
-                GlassCircleButton(icon: Icons.map_outlined, tooltip: 'Ver en el mapa', size: 46, onPressed: () => abrirEnMapa(lat!, lng!)),
-              ],
-            ],
-          ),
-        ],
-      ),
     );
   }
 }

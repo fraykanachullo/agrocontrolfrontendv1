@@ -8,7 +8,6 @@ import '../../../../core/providers/app_providers.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/form_pieces.dart';
 import '../../data/datasources/evidencia_local_datasource.dart';
-import '../../domain/entities/actividad.dart';
 
 /// Formularios del cuaderno: labor (RF-CUA-01), ingreso directo (RF-CUA-06)
 /// e incidencia (RF-CUA-08). Comparten estilo con el de gasto.
@@ -43,6 +42,7 @@ const _incidentTypes = <(String, String, IconData)>[
   ('Granizo', 'Granizo', Icons.thunderstorm_rounded),
   ('Agua (falta o exceso)', 'Agua', Icons.water_damage_rounded),
   ('Robo', 'Robo', Icons.report_rounded),
+  ('Transporte', 'Transporte', Icons.car_crash_rounded),
   ('Otra incidencia', 'Otra', Icons.more_horiz_rounded),
 ];
 
@@ -106,7 +106,7 @@ class _ActivitySheetState extends ConsumerState<_ActivitySheet> {
   String _description() {
     final note = _noteCtrl.text.trim();
     if (widget.incident) {
-      return '$kIncidentPrefix$_type · Severidad ${_severity.toLowerCase()}${note.isEmpty ? '' : ' · $note'}';
+      return 'Incidencia: $_type · Severidad ${_severity.toLowerCase()}${note.isEmpty ? '' : ' · $note'}';
     }
     return note.isEmpty ? _type : '$_type · $note';
   }
@@ -123,13 +123,21 @@ class _ActivitySheetState extends ConsumerState<_ActivitySheet> {
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
     try {
-      final id = await ref
-          .read(cuadernoProvider.notifier)
-          .addActividad(widget.campanaId, _description(), _fechaIso(_date));
+      final cuaderno = ref.read(cuadernoProvider.notifier);
+      final note = _noteCtrl.text.trim();
+      final id = widget.incident
+          ? await cuaderno.addIncidencia(
+              widget.campanaId,
+              tipo: _type,
+              severidad: _severity.toLowerCase(),
+              nota: note.isEmpty ? null : note,
+              fecha: _fechaIso(_date),
+            )
+          : await cuaderno.addActividad(widget.campanaId, _description(), _fechaIso(_date));
       if (_photo != null) {
         await EvidenciaLocalDatasource().saveEvidencia(
           relacionId: id,
-          relacionTipo: 'actividad',
+          relacionTipo: widget.incident ? 'incidencia' : 'actividad',
           rutaArchivo: _photo!.path,
         );
       }
@@ -214,7 +222,7 @@ class _ActivitySheetState extends ConsumerState<_ActivitySheet> {
         ),
         const SizedBox(height: 18),
         RecordSummary(
-          text: _description().replaceFirst(kIncidentPrefix, 'Incidencia: ') +
+          text: _description() +
               (_marcaSiembra ? '. Esta fecha queda como la siembra de la campaña.' : ''),
         ),
       ],

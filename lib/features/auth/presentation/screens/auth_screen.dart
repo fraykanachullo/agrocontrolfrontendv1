@@ -7,6 +7,7 @@ import '../../../../core/theme/theme_mode_provider.dart';
 import '../../../../core/utils/validators.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../../splash/presentation/screens/splash_screen.dart' show AppEmblem;
+import '../widgets/auth_field.dart';
 
 /// Ingresar y registrarse (S02) en una sola pantalla con pestañas.
 class AuthScreen extends ConsumerStatefulWidget {
@@ -146,7 +147,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
         key: const ValueKey('login'),
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _Field(
+          AuthField(
             label: 'Correo electrónico',
             icon: Icons.mail_outline_rounded,
             controller: _emailCtrl,
@@ -156,7 +157,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
             validator: AppValidators.email,
           ),
           const SizedBox(height: 14),
-          _Field(
+          AuthField(
             label: 'Contraseña',
             icon: Icons.lock_outline_rounded,
             controller: _passwordCtrl,
@@ -194,7 +195,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
         key: const ValueKey('register'),
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _Field(
+          AuthField(
             label: 'Nombre completo',
             icon: Icons.badge_outlined,
             controller: _nombreCtrl,
@@ -204,7 +205,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
             validator: AppValidators.required('El nombre'),
           ),
           const SizedBox(height: 14),
-          _Field(
+          AuthField(
             label: 'Correo electrónico',
             icon: Icons.mail_outline_rounded,
             controller: _emailCtrl,
@@ -214,7 +215,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
             validator: AppValidators.email,
           ),
           const SizedBox(height: 14),
-          _Field(
+          AuthField(
             label: 'Contraseña',
             icon: Icons.lock_outline_rounded,
             controller: _passwordCtrl,
@@ -225,7 +226,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
             validator: AppValidators.password,
           ),
           const SizedBox(height: 14),
-          _Field(
+          AuthField(
             label: 'Repite la contraseña',
             icon: Icons.lock_reset_rounded,
             controller: _confirmCtrl,
@@ -330,67 +331,6 @@ class _Tabs extends StatelessWidget {
           tab(true, Icons.person_add_alt_rounded, 'Registrarse'),
         ],
       ),
-    );
-  }
-}
-
-/// Campo con etiqueta arriba e icono a la izquierda.
-class _Field extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final TextEditingController controller;
-  final String? hint;
-  final TextInputType? keyboard;
-  final TextInputAction? action;
-  final TextCapitalization capitalization;
-  final bool obscure;
-  final VoidCallback? onToggleObscure;
-  final ValueChanged<String>? onSubmitted;
-  final String? Function(String?)? validator;
-
-  const _Field({
-    required this.label,
-    required this.icon,
-    required this.controller,
-    this.hint,
-    this.keyboard,
-    this.action,
-    this.capitalization = TextCapitalization.none,
-    this.obscure = false,
-    this.onToggleObscure,
-    this.onSubmitted,
-    this.validator,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: Theme.of(context).textTheme.titleSmall),
-        const SizedBox(height: 6),
-        TextFormField(
-          controller: controller,
-          keyboardType: keyboard,
-          textInputAction: action,
-          textCapitalization: capitalization,
-          obscureText: obscure,
-          onFieldSubmitted: onSubmitted,
-          validator: validator,
-          style: Theme.of(context).textTheme.bodyLarge,
-          decoration: InputDecoration(
-            hintText: hint,
-            prefixIcon: Icon(icon),
-            suffixIcon: onToggleObscure == null
-                ? null
-                : IconButton(
-                    tooltip: obscure ? 'Mostrar' : 'Ocultar',
-                    onPressed: onToggleObscure,
-                    icon: Icon(obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined),
-                  ),
-          ),
-        ),
-      ],
     );
   }
 }

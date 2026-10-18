@@ -1,383 +1,245 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../../../core/theme/app_colors.dart';
 import '../../../../core/providers/app_providers.dart';
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/utils/validators.dart';
+import '../../../../core/widgets/glass.dart';
+import '../widgets/auth_field.dart';
 
+/// Recuperar contraseña en dos pasos: pedir el código al correo y
+/// escribirlo junto con la nueva contraseña. Necesita internet.
 class ForgotPasswordScreen extends ConsumerStatefulWidget {
   const ForgotPasswordScreen({super.key});
 
   @override
-  ConsumerState<ForgotPasswordScreen> createState() =>
-      _ForgotPasswordScreenState();
+  ConsumerState<ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
 }
 
 class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _emailController = TextEditingController();
-  final _tokenController = TextEditingController();
-  final _passwordController = TextEditingController();
-  final _confirmPasswordController = TextEditingController();
-  bool _obscurePassword = true;
-  bool _obscureConfirm = true;
-  bool _showResetForm = false;
-  bool _isLoading = false;
+  final _emailCtrl = TextEditingController();
+  final _codigoCtrl = TextEditingController();
+  final _passwordCtrl = TextEditingController();
+  final _confirmCtrl = TextEditingController();
+  bool _obscure = true;
+  bool _codigoEnviado = false;
+  bool _loading = false;
 
   @override
   void dispose() {
-    _emailController.dispose();
-    _tokenController.dispose();
-    _passwordController.dispose();
-    _confirmPasswordController.dispose();
+    for (final c in [_emailCtrl, _codigoCtrl, _passwordCtrl, _confirmCtrl]) {
+      c.dispose();
+    }
     super.dispose();
   }
 
-  Future<void> _handleSendLink() async {
-    if (!(_formKey.currentState?.validate() ?? false)) return;
-
-    setState(() => _isLoading = true);
-    final ok = await ref
-        .read(authProvider.notifier)
-        .forgotPassword(_emailController.text.trim());
-    if (!mounted) return;
-    setState(() => _isLoading = false);
-
-    if (ok) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Si el correo está registrado, recibirá un enlace con el código para restablecer su contraseña.',
-          ),
-          backgroundColor: AppColors.statusActive,
-        ),
-      );
-      setState(() => _showResetForm = true);
-    } else {
-      final error = ref.read(authProvider).error;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(error ?? 'No se pudo enviar el enlace.'),
-          backgroundColor: AppColors.error,
-        ),
-      );
-      ref.read(authProvider.notifier).clearError();
-    }
+  void _error(String fallback) {
+    final error = ref.read(authProvider).error;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error ?? fallback)));
+    ref.read(authProvider.notifier).clearError();
   }
 
-  Future<void> _handleReset() async {
+  Future<void> _enviarCodigo() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
+    FocusScope.of(context).unfocus();
+    setState(() => _loading = true);
+    final ok = await ref.read(authProvider.notifier).forgotPassword(_emailCtrl.text.trim());
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      _codigoEnviado = ok;
+    });
+    if (!ok) _error('No se pudo enviar el código. Revisa tu conexión.');
+  }
 
-    setState(() => _isLoading = true);
+  Future<void> _restablecer() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    FocusScope.of(context).unfocus();
+    setState(() => _loading = true);
     final ok = await ref.read(authProvider.notifier).resetPassword(
-          email: _emailController.text.trim(),
-          token: _tokenController.text.trim(),
-          password: _passwordController.text,
+          email: _emailCtrl.text.trim(),
+          token: _codigoCtrl.text.trim(),
+          password: _passwordCtrl.text,
         );
     if (!mounted) return;
-    setState(() => _isLoading = false);
-
+    setState(() => _loading = false);
     if (ok) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Contraseña restablecida. Inicie sesión con su nueva contraseña.'),
-          backgroundColor: AppColors.statusActive,
-        ),
+        const SnackBar(content: Text('Contraseña cambiada. Ingresa con la nueva.')),
       );
       context.go('/login');
     } else {
-      final error = ref.read(authProvider).error;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(error ?? 'No se pudo restablecer la contraseña.'),
-          backgroundColor: AppColors.error,
-        ),
-      );
-      ref.read(authProvider.notifier).clearError();
+      _error('No se pudo cambiar la contraseña. Revisa el código.');
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.surfaceLight,
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-            child: _buildForgotCard(),
+    final text = Theme.of(context).textTheme;
+    return AgroBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+            children: [
+              Row(
+                children: [
+                  GlassCircleButton(
+                    icon: Icons.arrow_back_rounded,
+                    tooltip: 'Volver',
+                    onPressed: () => context.canPop() ? context.pop() : context.go('/login'),
+                  ),
+                  const SizedBox(width: 12),
+                  Text('Recuperar contraseña', style: text.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+                ],
+              ),
+              const SizedBox(height: 22),
+              _Pasos(paso: _codigoEnviado ? 2 : 1),
+              const SizedBox(height: 16),
+              GlassCard(
+                highlight: true,
+                radius: 28,
+                padding: const EdgeInsets.all(18),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(_codigoEnviado ? 'Crea tu nueva contraseña' : '¿Olvidaste tu contraseña?', style: text.headlineSmall),
+                      const SizedBox(height: 4),
+                      Text(
+                        _codigoEnviado
+                            ? 'Te enviamos un código a ${_emailCtrl.text.trim()}. Escríbelo aquí.'
+                            : 'Escribe tu correo y te enviaremos un código para cambiarla.',
+                        style: text.bodySmall,
+                      ),
+                      const SizedBox(height: 18),
+                      AuthField(
+                        label: 'Correo electrónico',
+                        icon: Icons.mail_outline_rounded,
+                        controller: _emailCtrl,
+                        hint: 'tu@correo.com',
+                        keyboard: TextInputType.emailAddress,
+                        action: _codigoEnviado ? TextInputAction.next : TextInputAction.done,
+                        onSubmitted: _codigoEnviado ? null : (_) => _enviarCodigo(),
+                        validator: AppValidators.email,
+                      ),
+                      if (_codigoEnviado) ...[
+                        const SizedBox(height: 14),
+                        AuthField(
+                          label: 'Código del correo',
+                          icon: Icons.pin_outlined,
+                          controller: _codigoCtrl,
+                          hint: 'Copia el código que te llegó',
+                          action: TextInputAction.next,
+                          validator: AppValidators.required('El código'),
+                        ),
+                        const SizedBox(height: 14),
+                        AuthField(
+                          label: 'Nueva contraseña',
+                          icon: Icons.lock_outline_rounded,
+                          controller: _passwordCtrl,
+                          hint: 'Mínimo 8 caracteres',
+                          obscure: _obscure,
+                          onToggleObscure: () => setState(() => _obscure = !_obscure),
+                          action: TextInputAction.next,
+                          validator: AppValidators.password,
+                        ),
+                        const SizedBox(height: 14),
+                        AuthField(
+                          label: 'Repite la contraseña',
+                          icon: Icons.lock_reset_rounded,
+                          controller: _confirmCtrl,
+                          hint: 'La misma contraseña',
+                          obscure: _obscure,
+                          action: TextInputAction.done,
+                          onSubmitted: (_) => _restablecer(),
+                          validator: (v) => v != _passwordCtrl.text ? 'Las contraseñas no coinciden' : null,
+                        ),
+                      ],
+                      const SizedBox(height: 20),
+                      AgroActionButton(
+                        label: _loading
+                            ? (_codigoEnviado ? 'Cambiando…' : 'Enviando…')
+                            : (_codigoEnviado ? 'Cambiar contraseña' : 'Enviar código'),
+                        icon: _codigoEnviado ? Icons.check_rounded : Icons.send_rounded,
+                        primary: true,
+                        height: 56,
+                        onPressed: _loading ? () {} : (_codigoEnviado ? _restablecer : _enviarCodigo),
+                      ),
+                      if (_codigoEnviado)
+                        TextButton(
+                          onPressed: _loading ? null : _enviarCodigo,
+                          child: const Text('No me llegó: enviar otro código'),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              GlassCard(
+                radius: 20,
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  children: [
+                    Icon(Icons.wifi_rounded, color: AppColors.accent),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text('Este paso necesita internet. Revisa también tu carpeta de spam.', style: text.bodySmall),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
+}
 
-  Widget _buildForgotCard() {
-    return Container(
-      width: 440,
-      padding: const EdgeInsets.all(32),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
-        border: Border.all(
-          color: AppColors.outlineVariant.withValues(alpha: 0.3),
-        ),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _buildHeader(),
-          const SizedBox(height: 32),
-          Form(
-            key: _formKey,
-            child: Column(
-              children: [
-                _buildEmailField(),
-                if (_showResetForm) ...[
-                  const SizedBox(height: 20),
-                  _buildTokenField(),
-                  const SizedBox(height: 20),
-                  _buildPasswordField(),
-                  const SizedBox(height: 20),
-                  _buildConfirmPasswordField(),
-                ],
-                const SizedBox(height: 28),
-                _buildActionButtons(),
-              ],
+/// Indicador de los dos pasos: pedir código y cambiar contraseña.
+class _Pasos extends StatelessWidget {
+  final int paso;
+
+  const _Pasos({required this.paso});
+
+  @override
+  Widget build(BuildContext context) {
+    Widget punto(int n, String label) {
+      final activo = n <= paso;
+      return Expanded(
+        child: Column(
+          children: [
+            Container(
+              height: 6,
+              decoration: BoxDecoration(
+                gradient: activo ? AppColors.progressGradient : null,
+                color: activo ? null : AppColors.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(999),
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-          TextButton(
-            onPressed: () => context.go('/login'),
-            child: Text(
-              '← Volver al inicio de sesión',
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.w600,
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: n == paso ? AppColors.accent : AppColors.textSubtle,
+                    fontWeight: n == paso ? FontWeight.w800 : FontWeight.w500,
                   ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
+          ],
+        ),
+      );
+    }
 
-  Widget _buildHeader() {
-    return Column(
+    return Row(
       children: [
-        Container(
-          width: 56,
-          height: 56,
-          decoration: BoxDecoration(
-            color: AppColors.primaryContainer,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(
-            Icons.lock_reset,
-            size: 32,
-            color: AppColors.onPrimaryContainer,
-          ),
-        ),
-        const SizedBox(height: 24),
-        Text(
-          _showResetForm ? 'Restablecer contraseña' : 'Recuperar contraseña',
-          style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                fontSize: 26,
-                height: 32 / 26,
-                fontWeight: FontWeight.w700,
-              ),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 8),
-        Text(
-          _showResetForm
-              ? 'Ingrese el código recibido por correo y su nueva contraseña.'
-              : 'Ingrese su correo y le enviaremos un código para restablecer su contraseña.',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: AppColors.onSurfaceVariant,
-              ),
-          textAlign: TextAlign.center,
-        ),
+        punto(1, '1. Pedir código'),
+        const SizedBox(width: 8),
+        punto(2, '2. Nueva contraseña'),
       ],
-    );
-  }
-
-  Widget _buildEmailField() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 8),
-          child: Text(
-            'Correo Electrónico',
-            style: Theme.of(context).textTheme.labelMedium,
-          ),
-        ),
-        TextFormField(
-          controller: _emailController,
-          keyboardType: TextInputType.emailAddress,
-          validator: (value) {
-            if (value == null || value.isEmpty) {
-              return 'El correo electrónico es requerido';
-            }
-            if (!RegExp(r'^[\w\-\.]+@([\w\-]+\.)+[\w\-]{2,4}$')
-                .hasMatch(value.trim())) {
-              return 'Ingrese un correo válido';
-            }
-            return null;
-          },
-          style: Theme.of(context).textTheme.bodyMedium,
-          decoration: const InputDecoration(
-            hintText: 'ejemplo@agrocontrol.com',
-            prefixIcon: Icon(Icons.mail_outlined, size: 20),
-            prefixIconConstraints: BoxConstraints(minWidth: 48, minHeight: 48),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildTokenField() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 8),
-          child: Text(
-            'Código de verificación',
-            style: Theme.of(context).textTheme.labelMedium,
-          ),
-        ),
-        TextFormField(
-          controller: _tokenController,
-          validator: (value) {
-            if (value == null || value.trim().isEmpty) {
-              return 'El código es requerido';
-            }
-            return null;
-          },
-          style: Theme.of(context).textTheme.bodyMedium,
-          decoration: const InputDecoration(
-            hintText: 'Copie el código del correo recibido',
-            prefixIcon: Icon(Icons.pin_outlined, size: 20),
-            prefixIconConstraints: BoxConstraints(minWidth: 48, minHeight: 48),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPasswordField() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 8),
-          child: Text(
-            'Nueva contraseña',
-            style: Theme.of(context).textTheme.labelMedium,
-          ),
-        ),
-        TextFormField(
-          controller: _passwordController,
-          obscureText: _obscurePassword,
-          validator: (value) {
-            if (value == null || value.isEmpty) {
-              return 'La contraseña es requerida';
-            }
-            if (value.length < 8) {
-              return 'Mínimo 8 caracteres';
-            }
-            return null;
-          },
-          style: Theme.of(context).textTheme.bodyMedium,
-          decoration: InputDecoration(
-            hintText: '••••••••',
-            prefixIcon: const Icon(Icons.lock_outlined, size: 20),
-            prefixIconConstraints:
-                const BoxConstraints(minWidth: 48, minHeight: 48),
-            suffixIcon: IconButton(
-              onPressed: () =>
-                  setState(() => _obscurePassword = !_obscurePassword),
-              icon: Icon(
-                _obscurePassword ? Icons.visibility_off : Icons.visibility,
-                size: 20,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildConfirmPasswordField() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 8),
-          child: Text(
-            'Confirmar contraseña',
-            style: Theme.of(context).textTheme.labelMedium,
-          ),
-        ),
-        TextFormField(
-          controller: _confirmPasswordController,
-          obscureText: _obscureConfirm,
-          validator: (value) {
-            if (value == null || value.isEmpty) {
-              return 'Confirme su contraseña';
-            }
-            if (value != _passwordController.text) {
-              return 'Las contraseñas no coinciden';
-            }
-            return null;
-          },
-          style: Theme.of(context).textTheme.bodyMedium,
-          decoration: InputDecoration(
-            hintText: '••••••••',
-            prefixIcon: const Icon(Icons.lock_outline, size: 20),
-            prefixIconConstraints:
-                const BoxConstraints(minWidth: 48, minHeight: 48),
-            suffixIcon: IconButton(
-              onPressed: () =>
-                  setState(() => _obscureConfirm = !_obscureConfirm),
-              icon: Icon(
-                _obscureConfirm ? Icons.visibility_off : Icons.visibility,
-                size: 20,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildActionButtons() {
-    return SizedBox(
-      width: double.infinity,
-      height: 52,
-      child: ElevatedButton(
-        onPressed: _isLoading
-            ? null
-            : (_showResetForm ? _handleReset : _handleSendLink),
-        child: _isLoading
-            ? SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: AppColors.onPrimary,
-                ),
-              )
-            : Text(_showResetForm ? 'Restablecer contraseña' : 'Enviar enlace'),
-      ),
     );
   }
 }

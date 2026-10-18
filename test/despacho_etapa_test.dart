@@ -46,8 +46,12 @@ void main() {
       expect(_despacho(estado: 'entregado', cobro: _haceDias(0)).etapa, EtapaDespacho.cobrado);
     });
 
-    test('la venta en campo se cobra en el momento', () {
-      expect(_despacho(tipoVenta: 'parcela', estado: 'entregado').etapa, EtapaDespacho.cobrado);
+    test('la venta en campo pagada queda cobrada', () {
+      expect(_despacho(tipoVenta: 'parcela', estado: 'entregado', cobro: _haceDias(0)).etapa, EtapaDespacho.cobrado);
+    });
+
+    test('la venta en campo fiada queda por cobrar', () {
+      expect(_despacho(tipoVenta: 'parcela', estado: 'entregado').etapa, EtapaDespacho.liquidado);
     });
   });
 

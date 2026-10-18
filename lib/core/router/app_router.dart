@@ -11,6 +11,8 @@ import '../../features/cosechas/presentation/screens/cosechas_screen.dart';
 import '../../features/resumen/presentation/screens/resumen_screen.dart';
 import '../../features/historial/presentation/screens/historial_screen.dart';
 import '../../features/perfil/presentation/screens/perfil_screen.dart';
+import '../../features/planillas/presentation/screens/plantillas_screen.dart';
+import '../../features/terrenos/presentation/screens/terrenos_screen.dart';
 
 final router = GoRouter(
   initialLocation: '/',
@@ -42,6 +44,14 @@ final router = GoRouter(
     GoRoute(
       path: '/perfil',
       builder: (context, state) => const PerfilScreen(),
+    ),
+    GoRoute(
+      path: '/terrenos',
+      builder: (context, state) => const TerrenosScreen(),
+    ),
+    GoRoute(
+      path: '/plantillas',
+      builder: (context, state) => const PlantillasScreen(),
     ),
     ShellRoute(
       builder: (context, state, child) {

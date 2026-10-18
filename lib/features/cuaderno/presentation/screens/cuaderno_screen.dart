@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/providers/app_providers.dart';
+import '../../../campanas/presentation/campaign_display.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/form_pieces.dart';
@@ -18,7 +19,8 @@ import '../widgets/record_sheets.dart';
       _ => ('Labor', Icons.agriculture_outlined, AppColors.info),
     };
 
-const _filters = [
+/// Filtros por tipo de registro (cuaderno e historial).
+const historialFilters = [
   (null, 'Todos'),
   ('gasto', 'Gastos'),
   ('ingreso', 'Ingresos'),
@@ -92,7 +94,10 @@ class _CuadernoScreenState extends ConsumerState<CuadernoScreen> {
           onToday: () => setState(() => _day = DateUtils.dateOnly(DateTime.now())),
         ),
         const SizedBox(height: 16),
-        _ActionGrid(onSelected: _open),
+        if (ref.watch(activeCampanaProvider)?.isClosed ?? false)
+          ClosedCampaignNotice(campana: ref.watch(activeCampanaProvider)!)
+        else
+          _ActionGrid(onSelected: _open),
         const SizedBox(height: 16),
         _DaySummary(entries: list, isToday: _isToday),
         const SizedBox(height: 24),
@@ -101,12 +106,12 @@ class _CuadernoScreenState extends ConsumerState<CuadernoScreen> {
           height: 36,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
-            itemCount: _filters.length,
+            itemCount: historialFilters.length,
             separatorBuilder: (_, _) => const SizedBox(width: 8),
             itemBuilder: (_, i) => MiniChip(
-              label: _filters[i].$2,
-              selected: _filter == _filters[i].$1,
-              onTap: () => setState(() => _filter = _filters[i].$1),
+              label: historialFilters[i].$2,
+              selected: _filter == historialFilters[i].$1,
+              onTap: () => setState(() => _filter = historialFilters[i].$1),
             ),
           ),
         ),
@@ -130,7 +135,7 @@ class _CuadernoScreenState extends ConsumerState<CuadernoScreen> {
             ),
           )
         else
-          for (final (i, e) in filtered.indexed) _TimelineItem(entry: e, isLast: i == filtered.length - 1),
+          for (final (i, e) in filtered.indexed) HistorialTimelineItem(entry: e, isLast: i == filtered.length - 1),
       ],
     );
   }
@@ -389,11 +394,12 @@ class _Stat extends StatelessWidget {
 }
 
 /// Registro en la línea de tiempo: punto + línea a la izquierda, tarjeta a la derecha.
-class _TimelineItem extends StatelessWidget {
+/// Registro en la línea de tiempo (cuaderno e historial).
+class HistorialTimelineItem extends StatelessWidget {
   final HistorialEntry entry;
   final bool isLast;
 
-  const _TimelineItem({required this.entry, required this.isLast});
+  const HistorialTimelineItem({super.key, required this.entry, required this.isLast});
 
   @override
   Widget build(BuildContext context) {

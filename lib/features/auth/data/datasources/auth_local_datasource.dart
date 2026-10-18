@@ -57,13 +57,15 @@ class AuthLocalDatasource {
     return UserModel.fromJson(results.first);
   }
 
+  /// Guarda o actualiza el usuario sin tocar su contraseña local: un
+  /// `replace` borraba la fila entera y dejaba sin ingreso offline.
   Future<void> saveUserToDb(UserModel user) async {
     final db = await AppDatabase.database;
-    await db.insert(
-      'users',
-      user.toJson(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    final data = user.toJson();
+    final updated = await db.update('users', data, where: 'email = ?', whereArgs: [user.email]);
+    if (updated == 0) {
+      await db.insert('users', data, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
   }
 
   Future<UserModel?> getUserFromDb(String email) async {

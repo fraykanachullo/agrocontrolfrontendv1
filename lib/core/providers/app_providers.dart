@@ -24,6 +24,7 @@ import '../../features/campanas/data/repositories/campana_repository_impl.dart';
 import '../../features/campanas/domain/entities/campana.dart';
 import '../../features/campanas/domain/repositories/campana_repository.dart';
 import '../../features/cuaderno/domain/entities/actividad.dart';
+import '../../features/cuaderno/domain/entities/incidencia.dart';
 import '../../features/cuaderno/domain/entities/transaccion.dart';
 import '../../features/cosechas/domain/entities/cosecha.dart';
 import '../../features/cosechas/domain/entities/cosecha_clase.dart';
@@ -429,6 +430,21 @@ final campanaResumenesProvider = FutureProvider<Map<int, CampanaResumen>>((ref) 
   };
 });
 
+/// Último gasto de una campaña, para repetirlo desde el formulario de gasto.
+final ultimoGastoProvider = FutureProvider.family<Map<String, dynamic>?, int>((ref, campanaId) {
+  ref.watch(dashboardRefreshTrigger);
+  return ref.watch(campanaLocalDatasourceProvider).ultimoGasto(campanaId);
+});
+
+/// Incidencias de la campaña activa (plagas, heladas…), de la más antigua a la más reciente.
+final incidenciasProvider = FutureProvider<List<Incidencia>>((ref) async {
+  ref.watch(dashboardRefreshTrigger);
+  final campanaId = ref.watch(activeCampanaIdProvider);
+  if (campanaId == null) return [];
+  final rows = await ref.watch(campanaLocalDatasourceProvider).listIncidencias(campanaId);
+  return rows.map(Incidencia.fromMap).toList();
+});
+
 final gastosPorEtapaProvider = FutureProvider<List<Map<String, dynamic>>>((ref) async {
   ref.watch(dashboardRefreshTrigger);
   final campanaId = ref.watch(activeCampanaIdProvider);
@@ -487,6 +503,7 @@ class CuadernoNotifier extends StateNotifier<CuadernoState> {
     String descripcion,
     String fecha,
   ) async {
+    await asegurarCampanaAbierta(campanaId);
     final uuidLocal = SyncQueueService.generateUuid();
     final id = await _localDatasource.insertActividad({
       'campana_id': campanaId,
@@ -509,6 +526,29 @@ class CuadernoNotifier extends StateNotifier<CuadernoState> {
     return id;
   }
 
+  /// Incidencia en su propia tabla. Aún no se sincroniza: el servidor no la tiene.
+  Future<int> addIncidencia(
+    int campanaId, {
+    required String tipo,
+    required String severidad,
+    String? nota,
+    required String fecha,
+  }) async {
+    await asegurarCampanaAbierta(campanaId);
+    final id = await _localDatasource.insertIncidencia({
+      'campana_id': campanaId,
+      'tipo': tipo,
+      'severidad': severidad,
+      'nota': nota,
+      'fecha': fecha,
+      'created_at': DateTime.now().toIso8601String(),
+      'is_synced': 0,
+      'uuid_local': SyncQueueService.generateUuid(),
+    });
+    await loadData(campanaId);
+    return id;
+  }
+
   Future<int> addTransaccion(
     int campanaId, {
     required String tipo,
@@ -519,6 +559,7 @@ class CuadernoNotifier extends StateNotifier<CuadernoState> {
     String estadoPago = 'pendiente',
     String? etapa,
   }) async {
+    await asegurarCampanaAbierta(campanaId);
     final uuidLocal = SyncQueueService.generateUuid();
     final id = await _localDatasource.insertTransaccion({
       'campana_id': campanaId,
@@ -673,6 +714,7 @@ class CosechasNotifier extends StateNotifier<CosechasState> {
     double? pesoTotalKg,
     List<Map<String, dynamic>> detalles = const [],
   }) async {
+    await asegurarCampanaAbierta(campanaId);
     final uuidLocal = SyncQueueService.generateUuid();
     final now = DateTime.now().toIso8601String();
 
@@ -900,6 +942,7 @@ class PlanillasNotifier extends StateNotifier<PlanillasState> {
   }
 
   Future<Planilla> addPlanilla(Planilla planilla) async {
+    await asegurarCampanaAbierta(planilla.campanaId);
     final id = await _localDatasource.insertPlanilla(planilla.toMap());
     final saved = planilla.copyWith(id: id);
     state = PlanillasState(
@@ -943,6 +986,9 @@ class HistorialEntry {
   final double? monto;
   final bool isSynced;
 
+  /// Fecha y hora del registro (para agrupar por día en el historial).
+  final DateTime? fecha;
+
   const HistorialEntry({
     required this.tipo,
     required this.titulo,
@@ -950,62 +996,64 @@ class HistorialEntry {
     required this.hora,
     this.monto,
     this.isSynced = false,
+    this.fecha,
   });
 }
 
-final historialDayProvider = FutureProvider.family<List<HistorialEntry>, (int, DateTime)>((
+String _isoDia(DateTime d) =>
+    '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+String _hora(String fecha) => fecha.contains('T') ? fecha.split('T')[1].substring(0, 5) : '--:--';
+
+/// Registros de la campaña entre dos días, ambos incluidos (RF-12).
+final historialRangoProvider = FutureProvider.family<List<HistorialEntry>, (int, DateTime, DateTime)>((
   ref,
   params,
 ) async {
   ref.watch(dashboardRefreshTrigger);
-  final campanaId = params.$1;
-  final date = params.$2;
+  final (campanaId, desdeDia, hastaDia) = params;
   final localDs = ref.read(campanaLocalDatasourceProvider);
-  final dateStr =
-      '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  final desde = _isoDia(desdeDia);
+  final hasta = _isoDia(DateTime(hastaDia.year, hastaDia.month, hastaDia.day + 1));
+  bool enRango(String f) => f.compareTo(desde) >= 0 && f.compareTo(hasta) < 0;
 
-  final actividades = await localDs.listActividadesForDay(campanaId, dateStr);
-  final transacciones = await localDs.listTransaccionesForDay(
-    campanaId,
-    dateStr,
-  );
-  final cosechas = await localDs.listCosechasForDay(campanaId, dateStr);
-
-  final cosechaIds = cosechas.map((c) => c['id'] as int).toList();
-  final allClases = await localDs.listCosechaClasesForIds(cosechaIds);
-  final clasesByCosecha = <int, List<Map<String, dynamic>>>{};
-  for (final cl in allClases) {
-    final cid = cl['cosecha_id'] as int;
-    clasesByCosecha.putIfAbsent(cid, () => []).add(cl);
-  }
+  final actividades = await localDs.listActividadesEnRango(campanaId, desde, hasta);
+  final incidencias = await localDs.listIncidenciasEnRango(campanaId, desde, hasta);
+  final transacciones = await localDs.listTransaccionesEnRango(campanaId, desde, hasta);
+  final cosechas = await localDs.listCosechasEnRango(campanaId, desde, hasta);
 
   final entries = <HistorialEntry>[];
 
   for (final a in actividades) {
     final fecha = (a['fecha'] as String?) ?? '';
-    final time = fecha.contains('T')
-        ? fecha.split('T')[1].substring(0, 5)
-        : '--:--';
-    final descripcion = a['descripcion'] as String? ?? '';
-    final isIncident = descripcion.startsWith(kIncidentPrefix);
-    final detalle = isIncident ? descripcion.substring(kIncidentPrefix.length) : descripcion;
-    final partes = detalle.split(' · ');
+    final partes = (a['descripcion'] as String? ?? '').split(' · ');
     entries.add(
       HistorialEntry(
-        tipo: isIncident ? 'incidencia' : 'actividad',
-        titulo: isIncident ? 'Incidencia: ${partes.first}' : partes.first,
+        tipo: 'actividad',
+        titulo: partes.first,
         descripcion: partes.skip(1).join(' · '),
-        hora: time,
+        hora: _hora(fecha),
         isSynced: (a['is_synced'] as int? ?? 0) == 1,
+        fecha: DateTime.tryParse(fecha),
+      ),
+    );
+  }
+
+  for (final i in incidencias.map(Incidencia.fromMap)) {
+    entries.add(
+      HistorialEntry(
+        tipo: 'incidencia',
+        titulo: 'Incidencia: ${i.tipo}',
+        descripcion: ['Severidad ${i.severidad}', if (i.nota != null) i.nota!].join(' · '),
+        hora: _hora(i.fecha),
+        isSynced: i.isSynced,
+        fecha: DateTime.tryParse(i.fecha),
       ),
     );
   }
 
   for (final t in transacciones) {
     final fecha = (t['fecha'] as String?) ?? '';
-    final time = fecha.contains('T')
-        ? fecha.split('T')[1].substring(0, 5)
-        : '--:--';
     final tipo = t['tipo'] as String? ?? 'gasto';
     entries.add(
       HistorialEntry(
@@ -1014,78 +1062,62 @@ final historialDayProvider = FutureProvider.family<List<HistorialEntry>, (int, D
             ? t['categoria'] as String
             : (tipo == 'gasto' ? 'Gasto' : 'Ingreso'),
         descripcion: t['descripcion'] as String? ?? '',
-        hora: time,
+        hora: _hora(fecha),
         monto: (t['monto'] as num?)?.toDouble(),
         isSynced: (t['is_synced'] as int? ?? 0) == 1,
+        fecha: DateTime.tryParse(fecha),
       ),
     );
   }
 
+  // Un despacho aparece el día que salió y, aparte, el día que se liquidó.
   for (final c in cosechas) {
-    final fecha = (c['fecha_envio'] as String?) ?? '';
-    final fechaLiq = (c['fecha_liquidacion'] as String?) ?? '';
-    final cosechaId = c['id'] as int?;
-    final isKilo = (c['tipo_venta'] as String?) != 'por_unidad';
-    final clasesMaps = cosechaId != null
-        ? (clasesByCosecha[cosechaId] ?? [])
-        : <Map<String, dynamic>>[];
-    final claseResumen = clasesMaps
-        .map((cl) {
-          final nombre = cl['clase'] as String? ?? '';
-          final cant = (cl['cantidad'] as num?)?.toDouble() ?? 0;
-          final precio = (cl['precio_unitario'] as num?)?.toDouble() ?? 0;
-          final peso = (cl['peso_kg'] as num?)?.toDouble();
-          if (peso != null && peso > 0) {
-            return '$nombre: ${cant.toInt()} sacos × ${peso.toStringAsFixed(1)}kg × S/${precio.toStringAsFixed(2)}';
-          }
-          return '$nombre: ${cant.toInt()} × S/${precio.toStringAsFixed(2)}';
-        })
-        .join(', ');
+    final envio = (c['fecha_envio'] as String?) ?? '';
+    final liquidacion = (c['fecha_liquidacion'] as String?) ?? '';
+    final envase = (c['unidad_empaque'] as String?) ?? 'java';
+    final destino = (c['mercado_destino'] as String?) ?? '';
+    final enCampo = c['tipo_venta'] == 'parcela';
+    final synced = (c['is_synced'] as int? ?? 0) == 1;
+    final neto = (c['monto_neto_final'] as num?)?.toDouble();
 
-    if (fecha.startsWith(dateStr)) {
-      final time = fecha.contains('T')
-          ? fecha.split('T')[1].substring(0, 5)
-          : '--:--';
-      final montoNeto = (c['monto_neto_final'] as num?)?.toDouble();
-      final desc = claseResumen.isNotEmpty
-          ? claseResumen
-          : 'Destino: ${c['mercado_destino'] ?? ''}';
+    if (enRango(envio)) {
       entries.add(
         HistorialEntry(
           tipo: 'cosecha',
-          titulo:
-              'Envío: ${c['cantidad_unidades']} ${isKilo ? "sacos" : "javas"}',
-          descripcion: desc,
-          hora: time,
-          monto: montoNeto,
-          isSynced: (c['is_synced'] as int? ?? 0) == 1,
+          titulo: enCampo
+              ? 'Venta en campo: ${c['cantidad_unidades']} ${envase}s'
+              : 'Despacho: ${c['cantidad_unidades']} ${envase}s',
+          descripcion: enCampo ? (c['conductor'] as String? ?? '') : 'Destino: $destino',
+          hora: _hora(envio),
+          monto: enCampo ? neto : null,
+          isSynced: synced,
+          fecha: DateTime.tryParse(envio),
         ),
       );
     }
-    if (fechaLiq.startsWith(dateStr) && !fecha.startsWith(dateStr)) {
-      final time = fechaLiq.contains('T')
-          ? fechaLiq.split('T')[1].substring(0, 5)
-          : '--:--';
-      final montoNeto = (c['monto_neto_final'] as num?)?.toDouble();
-      final desc = claseResumen.isNotEmpty
-          ? '$claseResumen → ${c['mercado_destino'] ?? ''}'
-          : '${c['cantidad_unidades']} ${isKilo ? "sacos" : "javas"} → ${c['mercado_destino'] ?? ''}';
+    if (!enCampo && enRango(liquidacion)) {
       entries.add(
         HistorialEntry(
           tipo: 'cosecha',
-          titulo: 'Liquidación #${c['id'] ?? ""}',
-          descripcion: desc,
-          hora: time,
-          monto: montoNeto,
-          isSynced: (c['is_synced'] as int? ?? 0) == 1,
+          titulo: 'Liquidación #D-${(c['id'] as int? ?? 0).toString().padLeft(3, '0')}',
+          descripcion: '${c['cantidad_unidades']} ${envase}s → $destino',
+          hora: _hora(liquidacion),
+          monto: neto,
+          isSynced: synced,
+          fecha: DateTime.tryParse(liquidacion),
         ),
       );
     }
   }
 
-  entries.sort((a, b) => b.hora.compareTo(a.hora));
+  entries.sort((a, b) => (b.fecha ?? DateTime(0)).compareTo(a.fecha ?? DateTime(0)));
   return entries;
 });
+
+/// Registros de un solo día (cuaderno e inicio).
+final historialDayProvider = FutureProvider.family<List<HistorialEntry>, (int, DateTime)>(
+  (ref, params) => ref.watch(historialRangoProvider((params.$1, params.$2, params.$2)).future),
+);
 
 // ── Sync Providers ──
 

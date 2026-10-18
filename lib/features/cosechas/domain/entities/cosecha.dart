@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'cosecha_clase.dart';
 import 'cosecha_detalle.dart';
 
-/// Ciclo de vida de un despacho al mercado. La venta en campo se vende y
-/// cobra en el momento: pasa directo a [cobrado].
+/// Ciclo de vida de un despacho al mercado. La venta en campo se liquida en
+/// el momento: queda [cobrado] o, si el comprador debe, [liquidado].
 enum EtapaDespacho {
   anotado('Anotado'),
   enTransito('En camino'),
@@ -93,7 +93,7 @@ class Cosecha {
   bool get isLiquidado => estado != 'pendiente' && estado != 'pendiente_de_liquidacion';
 
   EtapaDespacho get etapa {
-    if (enCampo || fechaCobro != null) return EtapaDespacho.cobrado;
+    if (fechaCobro != null) return EtapaDespacho.cobrado;
     if (isLiquidado) return EtapaDespacho.liquidado;
     if (fechaRecepcion != null) return EtapaDespacho.recibido;
     if (fechaSalida != null) return EtapaDespacho.enTransito;

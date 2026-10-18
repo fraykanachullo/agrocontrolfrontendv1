@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/glass.dart';
 import '../domain/entities/campana.dart';
 
 /// Presentación compartida de una campaña: emoji del cultivo y etapa visible.
@@ -32,5 +35,45 @@ enum CampaignStage {
     if (campana.isClosed) return cierre;
     if (hasHarvests) return cosecha;
     return campana.isSown ? crecimiento : inicio;
+  }
+}
+
+/// Aviso que reemplaza los botones de registro en una campaña cerrada (RN-01).
+class ClosedCampaignNotice extends StatelessWidget {
+  final Campana campana;
+
+  const ClosedCampaignNotice({super.key, required this.campana});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final cierre = campana.fechaCierre;
+    return GlassCard(
+      radius: 20,
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(color: AppColors.accentSoft, borderRadius: BorderRadius.circular(12)),
+            child: Icon(Icons.lock_outline_rounded, color: AppColors.textMuted),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  cierre == null ? 'Campaña cerrada' : 'Cerrada el ${DateFormat("d 'de' MMMM y", 'es').format(cierre)}',
+                  style: text.titleSmall,
+                ),
+                Text('Solo lectura: puedes ver sus registros y su resumen.', style: text.bodySmall),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

@@ -293,7 +293,9 @@ class _DespachoView {
     final pasos = enCampo
         ? [
             _Paso('Vendido en campo', fecha(c.fechaEnvio), '$anotado ${envase}s', _Estado.hecho),
-            _Paso('Cobrado', fecha(c.fechaLiquidacion), 'Pago recibido en el momento', _Estado.hecho),
+            etapa == EtapaDespacho.cobrado
+                ? _Paso('Cobrado', fecha(c.fechaCobro), 'Pago recibido', _Estado.hecho)
+                : _Paso('Cobrado', '', 'El comprador debe $neto', _Estado.actual),
           ]
         : [
             _Paso('Anotado en campo', fecha(c.fechaEnvio), '$anotado ${envase}s cargadas', _Estado.hecho),
@@ -433,7 +435,6 @@ class _DespachoView {
                 context,
                 campanaId: hoja!.campanaId,
                 cultivo: hoja!.cultivo,
-                tipo: hoja!.tipo,
                 numeroHoja: (hoja!.payload['numero_hoja'] as int?) ?? 0,
                 planilla: hoja,
               ),
