@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../../../core/providers/app_providers.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/agro_control_app_bar.dart';
 import '../../../../core/widgets/form_pieces.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../../cuaderno/presentation/screens/cuaderno_screen.dart' show HistorialTimelineItem, historialFilters;
@@ -83,80 +84,86 @@ class _HistorialScreenState extends ConsumerState<HistorialScreen> {
           onTap: () => setState(() => _periodo = p),
         );
 
-    return ListView(
-      padding: EdgeInsets.fromLTRB(20, 4, 20, 24 + MediaQuery.paddingOf(context).bottom),
-      children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
+    return AgroBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: const AgroControlAppBar(section: 'Historial', showBackButton: true),
+        body: ListView(
+          padding: EdgeInsets.fromLTRB(20, 4, 20, 24 + MediaQuery.paddingOf(context).bottom),
           children: [
-            periodo(_Periodo.hoy, 'Hoy'),
-            periodo(_Periodo.semana, '7 días'),
-            periodo(_Periodo.mes, 'Este mes'),
-            periodo(_Periodo.campana, 'Toda la campaña'),
-          ],
-        ),
-        const SizedBox(height: 10),
-        GlassCard(
-          radius: 18,
-          onTap: _elegirFechas,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          child: Row(
-            children: [
-              Icon(Icons.date_range_rounded, color: AppColors.accent),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(_periodo == _Periodo.elegido ? 'Periodo elegido' : 'Periodo', style: text.labelSmall),
-                    Text(_textoRango(rango), style: text.titleSmall),
-                  ],
-                ),
-              ),
-              Text('Elegir fechas', style: text.labelMedium?.copyWith(color: AppColors.accent, fontWeight: FontWeight.w700)),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        _ResumenPeriodo(entries: todos),
-        const SizedBox(height: 18),
-        SizedBox(
-          height: 36,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: historialFilters.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 8),
-            itemBuilder: (_, i) => MiniChip(
-              label: historialFilters[i].$2,
-              selected: _filtro == historialFilters[i].$1,
-              onTap: () => setState(() => _filtro = historialFilters[i].$1),
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        if (async.isLoading && todos.isEmpty)
-          const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()))
-        else if (lista.isEmpty)
-          GlassCard(
-            padding: const EdgeInsets.all(24),
-            child: Column(
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
               children: [
-                Icon(Icons.event_busy_rounded, color: AppColors.textSubtle, size: 32),
-                const SizedBox(height: 8),
-                Text(todos.isEmpty ? 'Nada registrado en este periodo' : 'Sin registros de este tipo', style: text.bodyMedium),
-                const SizedBox(height: 2),
-                Text('Prueba con otras fechas', style: text.bodySmall),
+                periodo(_Periodo.hoy, 'Hoy'),
+                periodo(_Periodo.semana, '7 días'),
+                periodo(_Periodo.mes, 'Este mes'),
+                periodo(_Periodo.campana, 'Toda la campaña'),
               ],
             ),
-          )
-        else
-          for (final MapEntry(key: dia, value: registros) in dias.entries) ...[
-            _CabeceraDia(dia: dia, registros: registros),
-            for (final (i, e) in registros.indexed) HistorialTimelineItem(entry: e, isLast: i == registros.length - 1),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
+            GlassCard(
+              radius: 18,
+              onTap: _elegirFechas,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(
+                children: [
+                  Icon(Icons.date_range_rounded, color: AppColors.accent),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(_periodo == _Periodo.elegido ? 'Periodo elegido' : 'Periodo', style: text.labelSmall),
+                        Text(_textoRango(rango), style: text.titleSmall),
+                      ],
+                    ),
+                  ),
+                  Text('Elegir fechas', style: text.labelMedium?.copyWith(color: AppColors.accent, fontWeight: FontWeight.w700)),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            _ResumenPeriodo(entries: todos),
+            const SizedBox(height: 18),
+            SizedBox(
+              height: 36,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: historialFilters.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 8),
+                itemBuilder: (_, i) => MiniChip(
+                  label: historialFilters[i].$2,
+                  selected: _filtro == historialFilters[i].$1,
+                  onTap: () => setState(() => _filtro = historialFilters[i].$1),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            if (async.isLoading && todos.isEmpty)
+              const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()))
+            else if (lista.isEmpty)
+              GlassCard(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  children: [
+                    Icon(Icons.event_busy_rounded, color: AppColors.textSubtle, size: 32),
+                    const SizedBox(height: 8),
+                    Text(todos.isEmpty ? 'Nada registrado en este periodo' : 'Sin registros de este tipo', style: text.bodyMedium),
+                    const SizedBox(height: 2),
+                    Text('Prueba con otras fechas', style: text.bodySmall),
+                  ],
+                ),
+              )
+            else
+              for (final MapEntry(key: dia, value: registros) in dias.entries) ...[
+                _CabeceraDia(dia: dia, registros: registros),
+                for (final (i, e) in registros.indexed) HistorialTimelineItem(entry: e, isLast: i == registros.length - 1),
+                const SizedBox(height: 8),
+              ],
           ],
-      ],
+        ),
+      ),
     );
   }
 

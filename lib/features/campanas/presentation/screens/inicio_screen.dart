@@ -205,7 +205,7 @@ class _InicioScreenState extends ConsumerState<InicioScreen> {
                 action(Icons.north_east_rounded, 'Registrar ingreso directo', () => _openForm(campana, 'Ingreso')),
                 action(Icons.agriculture_rounded, 'Registrar labor', () => _openForm(campana, 'Actividad')),
               ],
-              action(Icons.calendar_month_rounded, 'Ver historial', () => context.go('/c/${campana.id}/historial')),
+              action(Icons.calendar_month_rounded, 'Ver historial', () => context.push('/c/${campana.id}/historial')),
               action(Icons.add_circle_outline_rounded, 'Nueva campaña', () => context.push('/nueva-campana')),
               if (campana.isActive)
                 action(Icons.lock_outline_rounded, 'Cerrar campaña', () => closeCampanaFlow(context, ref, campana),
@@ -799,7 +799,7 @@ class _TodayMovements extends ConsumerWidget {
         SectionHeader(
           title: 'Movimientos de hoy',
           actionLabel: 'Ver todos',
-          onAction: () => context.go('/c/$campanaId/historial'),
+          onAction: () => context.push('/c/$campanaId/historial'),
         ),
         entries.when(
           loading: () => const Padding(

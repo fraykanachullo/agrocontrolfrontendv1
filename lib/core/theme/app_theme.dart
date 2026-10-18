@@ -69,6 +69,14 @@ abstract final class AppTheme {
       scaffoldBackgroundColor: p.background,
       canvasColor: p.background,
       splashFactory: InkSparkle.splashFactory,
+      // Pantallas que se abren encima: la nueva entra deslizándose y la de
+      // atrás se desvanece, sobre el color de fondo (sin zoom ni cruces).
+      pageTransitionsTheme: PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: FadeForwardsPageTransitionsBuilder(backgroundColor: p.background),
+          TargetPlatform.iOS: const CupertinoPageTransitionsBuilder(),
+        },
+      ),
       appBarTheme: AppBarTheme(
         backgroundColor: Colors.transparent,
         foregroundColor: ink,
