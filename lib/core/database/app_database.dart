@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 
@@ -16,7 +18,7 @@ class AppDatabase {
 
     return await openDatabase(
       path,
-      version: 10,
+      version: 11,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -62,6 +64,43 @@ class AppDatabase {
     }
     if (oldVersion < 10) {
       await _addCicloDespacho(db);
+    }
+    if (oldVersion < 11) {
+      await _createIncidenciasTable(db);
+      await _moverIncidencias(db);
+      await _createPlantillasTable(db);
+      await _seedPlantillas(db);
+    }
+  }
+
+  /// v11: las incidencias tenían el prefijo "[Incidencia] " en actividades
+  /// ("[Incidencia] Plaga · Severidad alta · nota"). Pasan a su propia tabla,
+  /// junto con sus fotos.
+  static Future<void> _moverIncidencias(Database db) async {
+    const prefijo = '[Incidencia] ';
+    final viejas = await db.query('actividades', where: 'descripcion LIKE ?', whereArgs: ['$prefijo%']);
+    for (final a in viejas) {
+      final partes = (a['descripcion'] as String).substring(prefijo.length).split(' · ');
+      final conSeveridad = partes.length > 1 && partes[1].startsWith('Severidad ');
+      final severidad = conSeveridad ? partes[1].substring('Severidad '.length) : 'media';
+      final nota = partes.skip(conSeveridad ? 2 : 1).join(' · ');
+      final id = await db.insert('incidencias', {
+        'campana_id': a['campana_id'],
+        'tipo': partes.first,
+        'severidad': severidad,
+        'nota': nota.isEmpty ? null : nota,
+        'fecha': a['fecha'],
+        'created_at': a['created_at'],
+        'is_synced': 0,
+        'uuid_local': a['uuid_local'],
+      });
+      await db.update(
+        'evidencias',
+        {'relacion_tipo': 'incidencia', 'relacion_id': id},
+        where: "relacion_tipo = 'actividad' AND relacion_id = ?",
+        whereArgs: [a['id']],
+      );
+      await db.delete('actividades', where: 'id = ?', whereArgs: [a['id']]);
     }
   }
 
@@ -237,6 +276,9 @@ class AppDatabase {
     ''');
 
     await _createTerrenosTable(db);
+    await _createIncidenciasTable(db);
+    await _createPlantillasTable(db);
+    await _seedPlantillas(db);
     await _createSyncQueueTable(db);
     await _createEvidenciasTable(db);
     await _createCosechaClasesTable(db);
@@ -264,6 +306,62 @@ class AppDatabase {
         uuid_local TEXT
       )
     ''');
+  }
+
+  /// Incidencia de la campaña: plaga, helada, enfermedad, robo…
+  static Future<void> _createIncidenciasTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS incidencias (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        campana_id INTEGER NOT NULL,
+        tipo TEXT NOT NULL,
+        severidad TEXT NOT NULL DEFAULT 'media',
+        nota TEXT,
+        fecha TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        is_synced INTEGER DEFAULT 0,
+        uuid_local TEXT,
+        FOREIGN KEY (campana_id) REFERENCES campanas(id)
+      )
+    ''');
+  }
+
+  /// Plantilla de cultivo editable: calidades (columnas de la hoja), filas
+  /// por defecto, envase y peso promedio del envase.
+  static Future<void> _createPlantillasTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS plantillas_cultivo (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cultivo TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        calidades_json TEXT NOT NULL,
+        filas INTEGER NOT NULL DEFAULT 16,
+        envase TEXT NOT NULL DEFAULT 'java',
+        peso_envase_kg REAL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+  }
+
+  /// Plantilla inicial de tomate (hoja real "Viernes 17").
+  static Future<void> _seedPlantillas(Database db) async {
+    await db.insert(
+      'plantillas_cultivo',
+      {
+        'cultivo': 'Tomate',
+        'calidades_json': jsonEncode([
+          {'codigo': 'I', 'nombre': 'Primera'},
+          {'codigo': 'II', 'nombre': 'Segunda'},
+          {'codigo': 'III', 'nombre': 'Tercera'},
+          {'codigo': '0', 'nombre': 'Cuarta'},
+          {'codigo': 'R', 'nombre': 'Rojos'},
+          {'codigo': 'Z', 'nombre': 'Manchados'},
+        ]),
+        'filas': 16,
+        'envase': 'java',
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
   }
 
   static Future<void> _createSyncQueueTable(Database db) async {

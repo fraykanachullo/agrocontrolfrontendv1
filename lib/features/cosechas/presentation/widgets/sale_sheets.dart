@@ -16,6 +16,8 @@ const _mercados = ['Lima', 'Arequipa', 'Santa Anita', 'Río Seco'];
 Future<SaleMode?> showSaleModePicker(BuildContext context) {
   return showModalBottomSheet<SaleMode>(
     context: context,
+    // Las tres tarjetas superan la altura por defecto de la hoja (9/16 de pantalla).
+    isScrollControlled: true,
     builder: (ctx) {
       final text = Theme.of(ctx).textTheme;
       Widget option(SaleMode mode, IconData icon, String title, String caption, Color color) => Padding(
@@ -49,7 +51,7 @@ Future<SaleMode?> showSaleModePicker(BuildContext context) {
           );
 
       return SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -144,6 +146,7 @@ class _FieldSaleSheetState extends ConsumerState<_FieldSaleSheet> {
   final _unitsCtrl = TextEditingController();
   final _kgCtrl = TextEditingController();
   final _priceCtrl = TextEditingController();
+  bool _pagado = true;
   bool _saving = false;
 
   bool get _byKilo => _mode == 'kilo';
@@ -184,18 +187,20 @@ class _FieldSaleSheetState extends ConsumerState<_FieldSaleSheet> {
         mercadoDestino: 'Venta en campo',
         fechaEnvio: _fechaIso(_date),
       );
-      // La venta en campo se cobra en el momento: queda liquidada.
+      // La venta en campo se liquida en el momento; si el comprador debe,
+      // queda "por cobrar" hasta marcar el pago.
       await notifier.liquidarCosecha(
         widget.campanaId,
         id,
         detallesPrecios: const [],
         descuentosLogistica: 0,
         precioUnitarioGlobal: _price,
+        cobrado: _pagado,
       );
       ref.read(dashboardRefreshTrigger.notifier).update((s) => s + 1);
       HapticFeedback.mediumImpact();
       navigator.pop();
-      messenger.showSnackBar(SnackBar(content: Text('Venta de ${formatSoles(_total)} registrada')));
+      messenger.showSnackBar(SnackBar(content: Text('Venta de ${formatSoles(_total)} registrada${_pagado ? '' : ' por cobrar'}')));
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text('Error: $e')));
       if (mounted) setState(() => _saving = false);
@@ -276,9 +281,21 @@ class _FieldSaleSheetState extends ConsumerState<_FieldSaleSheet> {
             ],
           ),
         ),
+        const SizedBox(height: 22),
+        const StepTitle(number: 4, title: '¿Ya te pagó?'),
+        OptionTiles<bool>(
+          options: const [
+            (true, 'Ya pagó', Icons.check_circle_rounded),
+            (false, 'Debe', Icons.pending_actions_rounded),
+          ],
+          selected: _pagado,
+          onSelected: (v) => setState(() => _pagado = v),
+          colorOf: (v) => v ? AppColors.positive : AppColors.warning,
+        ),
         const SizedBox(height: 18),
         RecordSummary(
-          text: 'Se registra como venta cobrada. Los gastos del día (cortadores, mallas…) anótalos en el Cuaderno.',
+          text: '${_pagado ? 'Se registra como venta cobrada.' : 'Queda por cobrar hasta que marques "Ya cobré" en el detalle.'} '
+              'Los gastos del día (cortadores, mallas…) anótalos en el Cuaderno.',
         ),
       ],
     );

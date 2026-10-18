@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../../../core/providers/app_providers.dart';
+import '../../../../core/providers/topo_provider.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/glass.dart';
@@ -11,6 +12,9 @@ import '../../../campanas/domain/entities/campana.dart';
 import '../../../campanas/presentation/campaign_actions.dart';
 import '../../../campanas/presentation/campaign_display.dart';
 import '../../../cosechas/domain/entities/cosecha.dart';
+import '../../../cosechas/presentation/liquidacion_model.dart';
+import '../../../cuaderno/domain/entities/incidencia.dart';
+import '../../../planillas/presentation/screens/plantillas_screen.dart' show plantillaDeCultivoProvider;
 
 final _amount = NumberFormat('#,##0.00', 'es_419');
 final _count = NumberFormat('#,##0', 'es_419');
@@ -27,6 +31,17 @@ class _Figures {
   final int ventas;
   final String unidad;
 
+  /// Liquidado por el comisionista pero aún sin cobrar.
+  final double porCobrarLiquidado;
+  final double ingresosPorCobrar;
+  final double gastosPorPagar;
+  final int despachosSinLiquidar;
+  final int bultosSinLiquidar;
+
+  /// Carga anotada y vendida de los despachos liquidados (para la merma).
+  final int anotadoDespachos;
+  final int vendidoDespachos;
+
   const _Figures({
     required this.gastos,
     required this.ingresosDirectos,
@@ -35,12 +50,29 @@ class _Figures {
     required this.bultos,
     required this.ventas,
     required this.unidad,
+    required this.porCobrarLiquidado,
+    required this.ingresosPorCobrar,
+    required this.gastosPorPagar,
+    required this.despachosSinLiquidar,
+    required this.bultosSinLiquidar,
+    required this.anotadoDespachos,
+    required this.vendidoDespachos,
   });
 
-  factory _Figures.from(Map<String, dynamic>? data, List<Cosecha> liquidadas) {
+  factory _Figures.from(Map<String, dynamic>? data, List<Cosecha> liquidadas, List<Cosecha> pendientes) {
     final ventasNetas = liquidadas.fold<double>(0, (s, c) => s + (c.montoNetoFinal ?? c.montoNetoCalculado));
     final totalIngresos = (data?['total_ingresos'] as double?) ?? 0;
+    final despachos = liquidadas.where((c) => !c.enCampo).map(calidadesDe).expand((l) => l);
     return _Figures(
+      porCobrarLiquidado: liquidadas
+          .where((c) => c.etapa == EtapaDespacho.liquidado)
+          .fold<double>(0, (s, c) => s + (c.montoNetoFinal ?? 0)),
+      ingresosPorCobrar: (data?['ingresos_por_cobrar'] as double?) ?? 0,
+      gastosPorPagar: (data?['gastos_por_pagar'] as double?) ?? 0,
+      despachosSinLiquidar: pendientes.length,
+      bultosSinLiquidar: pendientes.fold<int>(0, (s, c) => s + c.cantidadUnidades),
+      anotadoDespachos: despachos.fold<int>(0, (s, l) => s + l.anotado),
+      vendidoDespachos: despachos.fold<int>(0, (s, l) => s + l.vendidoEfectivo),
       gastos: (data?['total_gastos'] as double?) ?? 0,
       ingresosDirectos: (totalIngresos - ((data?['ingresos_ventas'] as double?) ?? 0)).clamp(0, double.infinity),
       ventasNetas: ventasNetas,
@@ -58,7 +90,21 @@ class _Figures {
   double? get retornoPorSol => gastos > 0 ? ingresos / gastos : null;
   double? get costoPorBulto => bultos > 0 ? gastos / bultos : null;
   double? get ventaPorBulto => bultos > 0 ? ventasNetas / bultos : null;
+
+  /// Cuentas por cobrar (RF-13): liquidado sin cobrar + ingresos fiados.
+  double get porCobrar => porCobrarLiquidado + ingresosPorCobrar;
+
+  /// Valor referencial de lo que aún no se liquida, al precio promedio obtenido.
+  double? get estimadoSinLiquidar =>
+      (ventaPorBulto != null && bultosSinLiquidar > 0) ? bultosSinLiquidar * ventaPorBulto! : null;
+
+  int get merma => anotadoDespachos - vendidoDespachos;
+  double? get mermaPct => anotadoDespachos > 0 ? merma / anotadoDespachos * 100 : null;
+
+  double? costoPorArea(Campana c) => c.extension > 0 ? gastos / c.extension : null;
 }
+
+String _unidadArea(Campana c) => c.tipoExtension == 'hectarea' ? 'ha' : 'topo';
 
 class ResumenScreen extends ConsumerStatefulWidget {
   final String campaignId;
@@ -85,7 +131,13 @@ class _ResumenScreenState extends ConsumerState<ResumenScreen> {
     }
 
     final cosechas = ref.watch(cosechasProvider);
-    final f = _Figures.from(ref.watch(dashboardDataProvider).value, cosechas.entregadas);
+    final f = _Figures.from(ref.watch(dashboardDataProvider).value, cosechas.entregadas, cosechas.pendientes);
+    final todas = [...cosechas.pendientes, ...cosechas.entregadas];
+    final primeraCosecha = todas
+        .map((c) => DateTime.tryParse(c.fechaEnvio ?? ''))
+        .nonNulls
+        .fold<DateTime?>(null, (m, d) => m == null || d.isBefore(m) ? d : m);
+    final incidencias = ref.watch(incidenciasProvider).value ?? const <Incidencia>[];
     List<(String, double)> rows(List<Map<String, dynamic>>? data, String key) => [
           for (final m in data ?? const <Map<String, dynamic>>[])
             (_label(m[key] as String?), (m['total'] as num).toDouble()),
@@ -99,16 +151,27 @@ class _ResumenScreenState extends ConsumerState<ResumenScreen> {
         _Header(campana: campana),
         const SizedBox(height: 16),
         _VerdictCard(campana: campana, f: f),
-        if (cosechas.pendientes.isNotEmpty) ...[
+        if (f.porCobrar > 0 || f.despachosSinLiquidar > 0 || f.gastosPorPagar > 0) ...[
           const SizedBox(height: 12),
-          _PendingNotice(count: cosechas.pendientes.length),
+          _PendingCard(f: f),
         ],
         const SizedBox(height: 24),
         const SectionHeader(title: 'Desglose de la campaña'),
         _Breakdown(f: f),
         const SizedBox(height: 24),
         SectionHeader(title: 'Métricas por ${f.unidad}'),
-        _UnitMetrics(f: f, campana: campana),
+        _UnitMetrics(
+          f: f,
+          campana: campana,
+          pesoEnvaseKg: ref.watch(plantillaDeCultivoProvider(campana.cultivo)).value?.pesoEnvaseKg,
+          hectareas: aHectareas(campana.extension, campana.tipoExtension, ref.watch(m2PorTopoProvider)),
+        ),
+        const SizedBox(height: 24),
+        const SectionHeader(title: 'Ciclo del cultivo'),
+        _CycleCard(campana: campana, primeraCosecha: primeraCosecha),
+        const SizedBox(height: 24),
+        SectionHeader(title: 'Incidencias (${incidencias.length})'),
+        _IncidentsCard(incidencias: incidencias),
         const SizedBox(height: 24),
         const SectionHeader(title: '¿En qué se va la plata?'),
         _ExpenseBars(rows: categorias, total: f.gastos),
@@ -156,6 +219,10 @@ class _ResumenScreenState extends ConsumerState<ResumenScreen> {
       ..writeln('*Utilidad neta: ${f.utilidad < 0 ? '-' : ''}${_soles(f.utilidad.abs())}*');
     if (f.rentabilidad != null) text.writeln('Rentabilidad: ${f.rentabilidad!.toStringAsFixed(1)}%');
     if (f.bultos > 0) text.writeln('${_count.format(f.bultos)} ${f.unidad}s vendidos');
+    final costoArea = f.costoPorArea(campana);
+    if (costoArea != null) text.writeln('Costo por ${_unidadArea(campana)}: ${_soles(costoArea)}');
+    if (f.mermaPct != null && f.merma > 0) text.writeln('Merma en despachos: ${f.merma} ${f.unidad}s (${f.mermaPct!.toStringAsFixed(1)}%)');
+    if (f.porCobrar > 0) text.writeln('Por cobrar: ${_soles(f.porCobrar)}');
     text
       ..writeln()
       ..write('Enviado desde AgroControl');
@@ -339,30 +406,202 @@ class _Chip extends StatelessWidget {
   }
 }
 
-class _PendingNotice extends StatelessWidget {
-  final int count;
+/// Lo que falta cobrar o pagar (RF-13: cuentas por cobrar).
+class _PendingCard extends StatelessWidget {
+  final _Figures f;
 
-  const _PendingNotice({required this.count});
+  const _PendingCard({required this.f});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.warning.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.warning.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.local_shipping_outlined, color: AppColors.warning, size: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              '$count despacho${count == 1 ? '' : 's'} por liquidar: el resultado todavía puede cambiar.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.text),
-            ),
+    final text = Theme.of(context).textTheme;
+    final estimado = f.estimadoSinLiquidar;
+    Widget fila(IconData icon, String titulo, String detalle, String monto, Color color) => Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Row(
+            children: [
+              Icon(icon, size: 20, color: color),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(titulo, style: text.titleSmall),
+                    Text(detalle, style: text.bodySmall),
+                  ],
+                ),
+              ),
+              Text(monto, style: AppTheme.display(fontSize: 14, color: color)),
+            ],
           ),
+        );
+
+    return GlassCard(
+      radius: 22,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
+      child: Column(
+        children: [
+          if (f.porCobrarLiquidado > 0)
+            fila(Icons.schedule_rounded, 'Liquidado sin cobrar', 'El comisionista aún no paga', _soles(f.porCobrarLiquidado), AppColors.warning),
+          if (f.ingresosPorCobrar > 0)
+            fila(Icons.north_east_rounded, 'Ventas fiadas', 'Ingresos del cuaderno por cobrar', _soles(f.ingresosPorCobrar), AppColors.warning),
+          if (f.despachosSinLiquidar > 0)
+            fila(
+              Icons.local_shipping_outlined,
+              '${f.despachosSinLiquidar} despacho${f.despachosSinLiquidar == 1 ? '' : 's'} sin liquidar',
+              '${_count.format(f.bultosSinLiquidar)} ${f.unidad}s · el resultado aún puede cambiar',
+              estimado == null ? '—' : '≈ ${_soles(estimado)}',
+              AppColors.info,
+            ),
+          if (f.gastosPorPagar > 0)
+            fila(Icons.pending_actions_rounded, 'Debes', 'Gastos fiados por pagar', '-${_soles(f.gastosPorPagar)}', AppColors.expense),
+        ],
+      ),
+    );
+  }
+}
+
+/// Hitos del ciclo: inicio, siembra, primera cosecha y duración.
+class _CycleCard extends StatelessWidget {
+  final Campana campana;
+  final DateTime? primeraCosecha;
+
+  const _CycleCard({required this.campana, required this.primeraCosecha});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    String fecha(DateTime? d) => d == null ? 'Sin registrar' : DateFormat("d MMM y", 'es').format(d);
+    int dias(DateTime a, DateTime b) =>
+        DateTime.utc(b.year, b.month, b.day).difference(DateTime.utc(a.year, a.month, a.day)).inDays;
+    final siembra = campana.fechaSiembra;
+    final hastaCosecha = (siembra != null && primeraCosecha != null) ? dias(siembra, primeraCosecha!) : null;
+    final fin = campana.isClosed && campana.fechaCierre != null ? campana.fechaCierre! : DateTime.now();
+    final duracion = campana.fechaInicio == null ? null : dias(campana.fechaInicio!, fin);
+
+    Widget hito(IconData icon, String label, DateTime? d) => Expanded(
+          child: Column(
+            children: [
+              Icon(icon, size: 20, color: d == null ? AppColors.textSubtle : AppColors.accent),
+              const SizedBox(height: 4),
+              Text(label, style: text.labelSmall),
+              Text(fecha(d), style: text.labelMedium?.copyWith(color: d == null ? AppColors.textSubtle : AppColors.text)),
+            ],
+          ),
+        );
+
+    return GlassCard(
+      radius: 22,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              hito(Icons.flag_outlined, 'Inicio', campana.fechaInicio),
+              hito(Icons.spa_outlined, 'Siembra', siembra),
+              hito(Icons.agriculture_outlined, '1.ª cosecha', primeraCosecha),
+            ],
+          ),
+          const Divider(height: 24),
+          Row(
+            children: [
+              Expanded(
+                child: _CycleFigure(
+                  value: hastaCosecha == null ? '—' : '$hastaCosecha',
+                  label: 'días de siembra a cosecha',
+                ),
+              ),
+              Expanded(
+                child: _CycleFigure(
+                  value: duracion == null ? '—' : '$duracion',
+                  label: campana.isClosed ? 'días que duró la campaña' : 'días de campaña',
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CycleFigure extends StatelessWidget {
+  final String value;
+  final String label;
+
+  const _CycleFigure({required this.value, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text(value, style: AppTheme.display(fontSize: 24, color: AppColors.text)),
+        Text(label, textAlign: TextAlign.center, style: Theme.of(context).textTheme.labelSmall),
+      ],
+    );
+  }
+}
+
+/// Incidencias junto al resultado: ¿fue el terreno, el precio o el manejo?
+class _IncidentsCard extends StatelessWidget {
+  final List<Incidencia> incidencias;
+
+  const _IncidentsCard({required this.incidencias});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    if (incidencias.isEmpty) {
+      return GlassCard(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Icon(Icons.verified_outlined, color: AppColors.positive),
+            const SizedBox(width: 10),
+            Expanded(child: Text('Sin plagas, heladas ni otros problemas registrados.', style: text.bodySmall)),
+          ],
+        ),
+      );
+    }
+    return GlassCard(
+      radius: 22,
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+      child: Column(
+        children: [
+          for (final i in incidencias)
+            Builder(builder: (context) {
+              final color = switch (i.severidad) {
+                'alta' => AppColors.error,
+                'media' => AppColors.warning,
+                _ => AppColors.positive,
+              };
+              final fecha = DateTime.tryParse(i.fecha);
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      margin: const EdgeInsets.only(top: 5),
+                      width: 9,
+                      height: 9,
+                      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(i.tipo, style: text.titleSmall),
+                          Text(['Severidad ${i.severidad}', if (i.nota != null) i.nota!].join(' · '), style: text.bodySmall),
+                        ],
+                      ),
+                    ),
+                    if (fecha != null) Text(DateFormat('d MMM', 'es').format(fecha), style: text.labelSmall),
+                  ],
+                ),
+              );
+            }),
         ],
       ),
     );
@@ -480,14 +719,21 @@ class _UnitMetrics extends StatelessWidget {
   final _Figures f;
   final Campana campana;
 
-  const _UnitMetrics({required this.f, required this.campana});
+  /// Peso promedio del envase (plantilla de cultivo) para estimar kilos.
+  final double? pesoEnvaseKg;
+
+  /// Área de la campaña en hectáreas (los topos según su tamaño en la zona).
+  final double hectareas;
+
+  const _UnitMetrics({required this.f, required this.campana, this.pesoEnvaseKg, required this.hectareas});
 
   @override
   Widget build(BuildContext context) {
     final costo = f.costoPorBulto;
     final venta = f.ventaPorBulto;
     final margen = (costo != null && venta != null) ? venta - costo : null;
-    final unidadArea = campana.tipoExtension == 'hectarea' ? 'ha' : 'topo';
+    final unidadArea = _unidadArea(campana);
+    final costoArea = f.costoPorArea(campana);
     final rendimiento = (f.bultos > 0 && campana.extension > 0) ? f.bultos / campana.extension : null;
     String money(double? v) => v == null ? '—' : _soles(v);
 
@@ -504,7 +750,9 @@ class _UnitMetrics extends StatelessWidget {
           icon: Icons.inventory_2_outlined,
           label: 'Costo por ${f.unidad}',
           value: money(costo),
-          caption: 'Tu precio de equilibrio',
+          caption: (costo != null && pesoEnvaseKg != null)
+              ? '≈ ${_soles(costo / pesoEnvaseKg!)} por kg'
+              : 'Tu precio de equilibrio',
         ),
         _MetricCard(
           icon: Icons.point_of_sale_outlined,
@@ -524,7 +772,24 @@ class _UnitMetrics extends StatelessWidget {
           icon: Icons.scale_outlined,
           label: 'Rendimiento',
           value: rendimiento == null ? '—' : _count.format(rendimiento),
-          caption: '${f.unidad}s por $unidadArea',
+          caption: (rendimiento != null && pesoEnvaseKg != null)
+              ? '≈ ${(rendimiento * pesoEnvaseKg! / 1000).toStringAsFixed(1)} t por $unidadArea'
+              : '${f.unidad}s por $unidadArea',
+        ),
+        _MetricCard(
+          icon: Icons.landscape_outlined,
+          label: 'Costo por $unidadArea',
+          value: money(costoArea),
+          caption: campana.tipoExtension == 'hectarea' || hectareas <= 0
+              ? 'Inversión ÷ ${_count.format(campana.extension)} $unidadArea'
+              : '≈ ${_soles(f.gastos / hectareas)} por ha',
+        ),
+        _MetricCard(
+          icon: Icons.trending_down_rounded,
+          label: 'Merma',
+          value: f.mermaPct == null ? '—' : '${f.mermaPct!.toStringAsFixed(1)}%',
+          caption: f.mermaPct == null ? 'Sin despachos liquidados' : '${_count.format(f.merma)} ${f.unidad}s perdidos',
+          color: f.merma > 0 ? AppColors.warning : null,
         ),
       ],
     );

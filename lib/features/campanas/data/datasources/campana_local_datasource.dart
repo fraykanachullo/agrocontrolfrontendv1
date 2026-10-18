@@ -2,6 +2,19 @@ import 'package:sqflite/sqflite.dart';
 import '../../../../core/database/app_database.dart';
 import '../models/campana_model.dart';
 
+/// Se intentó registrar en una campaña cerrada (RN-01: solo lectura).
+class CampanaCerradaException implements Exception {
+  @override
+  String toString() => 'La campaña está cerrada: solo se puede consultar';
+}
+
+/// Bloquea cualquier registro nuevo en una campaña cerrada (RN-01).
+Future<void> asegurarCampanaAbierta(int campanaId) async {
+  final db = await AppDatabase.database;
+  final rows = await db.query('campanas', columns: ['estado'], where: 'id = ?', whereArgs: [campanaId]);
+  if (rows.isNotEmpty && rows.first['estado'] == 'cerrada') throw CampanaCerradaException();
+}
+
 class CampanaLocalDatasource {
   Future<List<CampanaModel>> listCampanas(int userId) async {
     final db = await AppDatabase.database;
@@ -150,32 +163,34 @@ class CampanaLocalDatasource {
 
   // ── Date-filtered queries for Historial ──
 
-  Future<List<Map<String, dynamic>>> listActividadesForDay(int campanaId, String datePrefix) async {
+  // Rango [desde, hasta): fechas ISO 'yyyy-MM-dd', se comparan como texto.
+
+  Future<List<Map<String, dynamic>>> listActividadesEnRango(int campanaId, String desde, String hasta) async {
     final db = await AppDatabase.database;
     return await db.query(
       'actividades',
-      where: 'campana_id = ? AND fecha LIKE ?',
-      whereArgs: [campanaId, '$datePrefix%'],
+      where: 'campana_id = ? AND fecha >= ? AND fecha < ?',
+      whereArgs: [campanaId, desde, hasta],
       orderBy: 'fecha DESC',
     );
   }
 
-  Future<List<Map<String, dynamic>>> listTransaccionesForDay(int campanaId, String datePrefix) async {
+  Future<List<Map<String, dynamic>>> listTransaccionesEnRango(int campanaId, String desde, String hasta) async {
     final db = await AppDatabase.database;
     return await db.query(
       'transacciones',
-      where: 'campana_id = ? AND fecha LIKE ?',
-      whereArgs: [campanaId, '$datePrefix%'],
+      where: 'campana_id = ? AND fecha >= ? AND fecha < ?',
+      whereArgs: [campanaId, desde, hasta],
       orderBy: 'fecha DESC',
     );
   }
 
-  Future<List<Map<String, dynamic>>> listCosechasForDay(int campanaId, String datePrefix) async {
+  Future<List<Map<String, dynamic>>> listCosechasEnRango(int campanaId, String desde, String hasta) async {
     final db = await AppDatabase.database;
     return await db.query(
       'cosechas',
-      where: 'campana_id = ? AND (fecha_envio LIKE ? OR fecha_liquidacion LIKE ?)',
-      whereArgs: [campanaId, '$datePrefix%', '$datePrefix%'],
+      where: 'campana_id = ? AND ((fecha_envio >= ? AND fecha_envio < ?) OR (fecha_liquidacion >= ? AND fecha_liquidacion < ?))',
+      whereArgs: [campanaId, desde, hasta, desde, hasta],
       orderBy: 'created_at DESC',
     );
   }
@@ -190,6 +205,19 @@ class CampanaLocalDatasource {
       whereArgs: cosechaIds,
       orderBy: 'id ASC',
     );
+  }
+
+  /// Último gasto registrado en la campaña (para "repetir el último gasto").
+  Future<Map<String, dynamic>?> ultimoGasto(int campanaId) async {
+    final db = await AppDatabase.database;
+    final rows = await db.query(
+      'transacciones',
+      where: "campana_id = ? AND tipo = 'gasto'",
+      whereArgs: [campanaId],
+      orderBy: 'created_at DESC',
+      limit: 1,
+    );
+    return rows.firstOrNull;
   }
 
   // ── Gastos por Categoría ──
@@ -253,6 +281,15 @@ class CampanaLocalDatasource {
       "SELECT COUNT(*) as total FROM cosechas WHERE campana_id = ? AND estado = ?",
       [campanaId, 'entregado'],
     );
+    // Fiado en ambos sentidos: ingresos que aún no se cobran y gastos que se deben.
+    final porCobrar = await db.rawQuery(
+      "SELECT COALESCE(SUM(monto), 0) as total FROM transacciones WHERE campana_id = ? AND tipo = 'ingreso' AND estado_pago = 'por_cobrar'",
+      [campanaId],
+    );
+    final porPagar = await db.rawQuery(
+      "SELECT COALESCE(SUM(monto), 0) as total FROM transacciones WHERE campana_id = ? AND tipo = 'gasto' AND estado_pago = 'por_pagar'",
+      [campanaId],
+    );
     final cosechasLiquidadas = await db.rawQuery(
       "SELECT COALESCE(SUM(monto_neto_final), 0) as total FROM cosechas WHERE campana_id = ? AND estado = ?",
       [campanaId, 'entregado'],
@@ -266,6 +303,30 @@ class CampanaLocalDatasource {
       'cosechas_pendientes': (cosechasPendientes.first['total'] as int),
       'cosechas_entregadas': (cosechasEntregadas.first['total'] as int),
       'ingresos_ventas': (cosechasLiquidadas.first['total'] as num).toDouble(),
+      'ingresos_por_cobrar': (porCobrar.first['total'] as num).toDouble(),
+      'gastos_por_pagar': (porPagar.first['total'] as num).toDouble(),
     };
+  }
+
+  // ── Incidencias ──
+
+  Future<int> insertIncidencia(Map<String, dynamic> data) async {
+    final db = await AppDatabase.database;
+    return await db.insert('incidencias', data);
+  }
+
+  Future<List<Map<String, dynamic>>> listIncidencias(int campanaId) async {
+    final db = await AppDatabase.database;
+    return await db.query('incidencias', where: 'campana_id = ?', whereArgs: [campanaId], orderBy: 'fecha ASC');
+  }
+
+  Future<List<Map<String, dynamic>>> listIncidenciasEnRango(int campanaId, String desde, String hasta) async {
+    final db = await AppDatabase.database;
+    return await db.query(
+      'incidencias',
+      where: 'campana_id = ? AND fecha >= ? AND fecha < ?',
+      whereArgs: [campanaId, desde, hasta],
+      orderBy: 'fecha DESC',
+    );
   }
 }

@@ -29,8 +29,10 @@ Future<void> showRecordSheet(BuildContext context, Widget sheet) {
 class RecordSheetScaffold extends StatelessWidget {
   final String title;
   final String subtitle;
-  final DateTime date;
-  final ValueChanged<DateTime> onDateChanged;
+
+  /// Fecha del registro; sin fecha (terrenos, plantillas) no se muestra el selector.
+  final DateTime? date;
+  final ValueChanged<DateTime>? onDateChanged;
   final List<Widget> children;
   final Widget saveBar;
 
@@ -38,8 +40,8 @@ class RecordSheetScaffold extends StatelessWidget {
     super.key,
     required this.title,
     required this.subtitle,
-    required this.date,
-    required this.onDateChanged,
+    this.date,
+    this.onDateChanged,
     required this.children,
     required this.saveBar,
   });
@@ -47,17 +49,17 @@ class RecordSheetScaffold extends StatelessWidget {
   Future<void> _pickDate(BuildContext context) async {
     final picked = await showDatePicker(
       context: context,
-      initialDate: date,
+      initialDate: date!,
       firstDate: DateTime(2020),
       lastDate: DateTime.now(),
     );
-    if (picked != null) onDateChanged(picked);
+    if (picked != null) onDateChanged?.call(picked);
   }
 
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
-    final isToday = DateUtils.isSameDay(date, DateTime.now());
+    final date = this.date;
 
     return Column(
       children: [
@@ -110,11 +112,12 @@ class RecordSheetScaffold extends StatelessWidget {
                   Icon(Icons.eco_outlined, size: 15, color: AppColors.accent),
                   const SizedBox(width: 5),
                   Expanded(child: Text(subtitle, style: text.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis)),
-                  ActionChip(
-                    avatar: Icon(Icons.event_rounded, size: 16, color: AppColors.accent),
-                    label: Text(isToday ? 'Hoy' : DateFormat('d MMM', 'es').format(date)),
-                    onPressed: () => _pickDate(context),
-                  ),
+                  if (date != null)
+                    ActionChip(
+                      avatar: Icon(Icons.event_rounded, size: 16, color: AppColors.accent),
+                      label: Text(DateUtils.isSameDay(date, DateTime.now()) ? 'Hoy' : DateFormat('d MMM', 'es').format(date)),
+                      onPressed: () => _pickDate(context),
+                    ),
                 ],
               ),
               const SizedBox(height: 22),
@@ -553,6 +556,118 @@ class RecordSummary extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Pide un texto en un diálogo y devuelve lo escrito (o null si se cancela).
+/// El diálogo es dueño de su controlador: así no se usa ya liberado mientras
+/// se cierra la animación.
+Future<String?> showTextInputDialog(
+  BuildContext context, {
+  required String title,
+  String initial = '',
+  String? hint,
+  String? help,
+  String? suffix,
+  String confirmLabel = 'Listo',
+  TextInputType? keyboardType,
+  TextCapitalization capitalization = TextCapitalization.sentences,
+  int maxLines = 1,
+  List<String> suggestions = const [],
+}) {
+  return showDialog<String>(
+    context: context,
+    builder: (_) => _TextInputDialog(
+      title: title,
+      initial: initial,
+      hint: hint,
+      help: help,
+      suffix: suffix,
+      confirmLabel: confirmLabel,
+      keyboardType: keyboardType,
+      capitalization: capitalization,
+      maxLines: maxLines,
+      suggestions: suggestions,
+    ),
+  );
+}
+
+class _TextInputDialog extends StatefulWidget {
+  final String title;
+  final String initial;
+  final String? hint;
+  final String? help;
+  final String? suffix;
+  final String confirmLabel;
+  final TextInputType? keyboardType;
+  final TextCapitalization capitalization;
+  final int maxLines;
+  final List<String> suggestions;
+
+  const _TextInputDialog({
+    required this.title,
+    required this.initial,
+    required this.hint,
+    required this.help,
+    required this.suffix,
+    required this.confirmLabel,
+    required this.keyboardType,
+    required this.capitalization,
+    required this.maxLines,
+    required this.suggestions,
+  });
+
+  @override
+  State<_TextInputDialog> createState() => _TextInputDialogState();
+}
+
+class _TextInputDialogState extends State<_TextInputDialog> {
+  late final _ctrl = TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: _ctrl,
+            autofocus: true,
+            keyboardType: widget.keyboardType,
+            textCapitalization: widget.capitalization,
+            minLines: widget.maxLines > 1 ? 3 : 1,
+            maxLines: widget.maxLines,
+            decoration: InputDecoration(hintText: widget.hint, suffixText: widget.suffix),
+          ),
+          if (widget.help != null) ...[
+            const SizedBox(height: 8),
+            Text(widget.help!, style: Theme.of(context).textTheme.bodySmall),
+          ],
+          if (widget.suggestions.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final s in widget.suggestions) MiniChip(label: s, onTap: () => Navigator.of(context).pop(s)),
+              ],
+            ),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancelar')),
+        TextButton(onPressed: () => Navigator.of(context).pop(_ctrl.text.trim()), child: Text(widget.confirmLabel)),
+      ],
     );
   }
 }

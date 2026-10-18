@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/providers/app_providers.dart';
+import '../../../../core/providers/topo_provider.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/agro_control_app_bar.dart';
@@ -9,8 +10,13 @@ import '../../../../core/widgets/form_pieces.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../domain/entities/campana.dart';
 import '../widgets/campaign_tile.dart';
+import '../widgets/comparativo_campanas.dart';
 
-/// Tus campañas (S03): balance consolidado, activas / cerradas y nueva campaña.
+/// Pestañas de "Tus campañas".
+enum _Vista { activas, cerradas, comparar }
+
+/// Tus campañas (S03): balance consolidado, activas / cerradas, comparativo
+/// por cultivo o año y nueva campaña.
 class CampaignSelectorScreen extends ConsumerStatefulWidget {
   const CampaignSelectorScreen({super.key});
 
@@ -19,7 +25,7 @@ class CampaignSelectorScreen extends ConsumerStatefulWidget {
 }
 
 class _CampaignSelectorScreenState extends ConsumerState<CampaignSelectorScreen> {
-  bool _showActive = true;
+  _Vista _vista = _Vista.activas;
 
   @override
   void initState() {
@@ -43,7 +49,7 @@ class _CampaignSelectorScreenState extends ConsumerState<CampaignSelectorScreen>
     final resumenes = ref.watch(campanaResumenesProvider).value ?? const {};
     final activas = state.campanas.where((c) => !c.isClosed).toList();
     final cerradas = state.campanas.where((c) => c.isClosed).toList();
-    final lista = _showActive ? activas : cerradas;
+    final lista = _vista == _Vista.activas ? activas : cerradas;
 
     return AgroBackground(
       child: Scaffold(
@@ -72,8 +78,8 @@ class _CampaignSelectorScreenState extends ConsumerState<CampaignSelectorScreen>
                         icon: Icons.check_circle_outline_rounded,
                         label: 'Activas',
                         count: activas.length,
-                        selected: _showActive,
-                        onTap: () => setState(() => _showActive = true),
+                        selected: _vista == _Vista.activas,
+                        onTap: () => setState(() => _vista = _Vista.activas),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -82,8 +88,17 @@ class _CampaignSelectorScreenState extends ConsumerState<CampaignSelectorScreen>
                         icon: Icons.inventory_2_outlined,
                         label: 'Cerradas',
                         count: cerradas.length,
-                        selected: !_showActive,
-                        onTap: () => setState(() => _showActive = false),
+                        selected: _vista == _Vista.cerradas,
+                        onTap: () => setState(() => _vista = _Vista.cerradas),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _Tab(
+                        icon: Icons.bar_chart_rounded,
+                        label: 'Comparar',
+                        selected: _vista == _Vista.comparar,
+                        onTap: () => setState(() => _vista = _Vista.comparar),
                       ),
                     ),
                   ],
@@ -107,6 +122,8 @@ class _CampaignSelectorScreenState extends ConsumerState<CampaignSelectorScreen>
                     ],
                   ),
                 )
+              else if (_vista == _Vista.comparar)
+                ComparativoCampanas(campanas: state.campanas, resumenes: resumenes, m2PorTopo: ref.watch(m2PorTopoProvider))
               else if (lista.isEmpty)
                 GlassCard(
                   padding: const EdgeInsets.all(28),
@@ -117,7 +134,7 @@ class _CampaignSelectorScreenState extends ConsumerState<CampaignSelectorScreen>
                       Text(
                         state.campanas.isEmpty
                             ? 'Aún no tienes campañas'
-                            : (_showActive ? 'No hay campañas activas' : 'Aún no cierras ninguna campaña'),
+                            : (_vista == _Vista.activas ? 'No hay campañas activas' : 'Aún no cierras ninguna campaña'),
                         style: text.titleMedium,
                       ),
                       const SizedBox(height: 4),
@@ -225,11 +242,11 @@ class _ConsolidatedCard extends StatelessWidget {
 class _Tab extends StatelessWidget {
   final IconData icon;
   final String label;
-  final int count;
+  final int? count;
   final bool selected;
   final VoidCallback onTap;
 
-  const _Tab({required this.icon, required this.label, required this.count, required this.selected, required this.onTap});
+  const _Tab({required this.icon, required this.label, this.count, required this.selected, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -244,19 +261,26 @@ class _Tab extends StatelessWidget {
           borderRadius: BorderRadius.circular(999),
           border: Border.all(color: selected ? AppColors.accent : AppColors.cardBorder),
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 18, color: color),
-            const SizedBox(width: 6),
-            Text(label, style: Theme.of(context).textTheme.labelLarge?.copyWith(color: color, fontWeight: selected ? FontWeight.w800 : FontWeight.w600)),
-            const SizedBox(width: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
-              decoration: BoxDecoration(color: color.withValues(alpha: 0.16), borderRadius: BorderRadius.circular(999)),
-              child: Text('$count', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: color, fontWeight: FontWeight.w800)),
-            ),
-          ],
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        // Tres pestañas en un teléfono angosto: el contenido se encoge si no entra.
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 18, color: color),
+              const SizedBox(width: 6),
+              Text(label, style: Theme.of(context).textTheme.labelLarge?.copyWith(color: color, fontWeight: selected ? FontWeight.w800 : FontWeight.w600)),
+              if (count != null) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
+                  decoration: BoxDecoration(color: color.withValues(alpha: 0.16), borderRadius: BorderRadius.circular(999)),
+                  child: Text('$count', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: color, fontWeight: FontWeight.w800)),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );

@@ -83,23 +83,27 @@ class _InicioScreenState extends ConsumerState<InicioScreen> {
         _BalanceCard(data: data, campana: campana, stage: stage, soldUnits: _soldUnits(cosechas.entregadas)),
         const SizedBox(height: 24),
         SectionHeader(title: 'Acciones rápidas', actionLabel: 'Más', onAction: () => _showMoreActions(campana)),
-        AgroActionButton(
-          label: 'Registrar gasto o jornal',
-          icon: Icons.add_circle_rounded,
-          primary: true,
-          height: 56,
-          onPressed: () => _openForm(campana, 'Gasto'),
-        ),
-        const SizedBox(height: 10),
-        AgroActionButton(
-          label: 'Registrar despacho o venta',
-          icon: Icons.local_shipping_rounded,
-          height: 54,
-          onPressed: () => context.go('/c/${campana.id}/cosechas'),
-        ),
-        const SizedBox(height: 24),
-        const SectionHeader(title: 'Registro rápido de gastos'),
-        _QuickExpenseGrid(onSelected: (categoria) => _openForm(campana, 'Gasto', categoria: categoria)),
+        if (campana.isClosed)
+          ClosedCampaignNotice(campana: campana)
+        else ...[
+          AgroActionButton(
+            label: 'Registrar gasto o jornal',
+            icon: Icons.add_circle_rounded,
+            primary: true,
+            height: 56,
+            onPressed: () => _openForm(campana, 'Gasto'),
+          ),
+          const SizedBox(height: 10),
+          AgroActionButton(
+            label: 'Registrar despacho o venta',
+            icon: Icons.local_shipping_rounded,
+            height: 54,
+            onPressed: () => context.go('/c/${campana.id}/cosechas'),
+          ),
+          const SizedBox(height: 24),
+          const SectionHeader(title: 'Registro rápido de gastos'),
+          _QuickExpenseGrid(onSelected: (categoria) => _openForm(campana, 'Gasto', categoria: categoria)),
+        ],
         const SizedBox(height: 24),
         _PendingShipments(
           campanaId: campana.id,
@@ -197,8 +201,10 @@ class _InicioScreenState extends ConsumerState<InicioScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              action(Icons.north_east_rounded, 'Registrar ingreso directo', () => _openForm(campana, 'Ingreso')),
-              action(Icons.agriculture_rounded, 'Registrar labor', () => _openForm(campana, 'Actividad')),
+              if (!campana.isClosed) ...[
+                action(Icons.north_east_rounded, 'Registrar ingreso directo', () => _openForm(campana, 'Ingreso')),
+                action(Icons.agriculture_rounded, 'Registrar labor', () => _openForm(campana, 'Actividad')),
+              ],
               action(Icons.calendar_month_rounded, 'Ver historial', () => context.go('/c/${campana.id}/historial')),
               action(Icons.add_circle_outline_rounded, 'Nueva campaña', () => context.push('/nueva-campana')),
               if (campana.isActive)

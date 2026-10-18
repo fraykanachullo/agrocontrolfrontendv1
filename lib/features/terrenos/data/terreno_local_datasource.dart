@@ -47,4 +47,34 @@ class TerrenoLocalDatasource {
     });
     return (await getTerreno(id))!;
   }
+
+  /// Edita un terreno. La unidad no se toca: queda fija desde su creación (RN-02).
+  Future<void> updateTerreno(
+    int id, {
+    required String nombre,
+    required String tenencia,
+    required double area,
+    double? latitud,
+    double? longitud,
+    String? referencia,
+    String? notas,
+  }) async {
+    final db = await AppDatabase.database;
+    await db.update(
+      'terrenos',
+      {
+        'nombre': nombre,
+        'tenencia': tenencia,
+        'area': area,
+        'latitud': latitud,
+        'longitud': longitud,
+        'referencia': referencia,
+        'notas': notas,
+        'updated_at': DateTime.now().toIso8601String(),
+        'is_synced': 0,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
 }

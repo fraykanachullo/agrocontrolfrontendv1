@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
 import '../../../../core/providers/app_providers.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_theme.dart';
@@ -189,6 +190,35 @@ class _ExpenseSheetState extends ConsumerState<ExpenseSheet> {
     }
   }
 
+  /// Copia el último gasto tal cual (categoría, monto, etapa, pago y detalle)
+  /// en la fecha elegida: lo que se repite cada semana se registra en un toque.
+  Future<void> _repetir(Map<String, dynamic> g) async {
+    setState(() => _saving = true);
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    try {
+      final now = DateTime.now();
+      final monto = (g['monto'] as num).toDouble();
+      await ref.read(cuadernoProvider.notifier).addTransaccion(
+            widget.campanaId,
+            tipo: 'gasto',
+            categoria: g['categoria'] as String? ?? 'Otros',
+            monto: monto,
+            descripcion: g['descripcion'] as String? ?? '',
+            fecha: DateTime(_date.year, _date.month, _date.day, now.hour, now.minute).toIso8601String(),
+            estadoPago: g['estado_pago'] as String? ?? 'pagado',
+            etapa: g['etapa'] as String?,
+          );
+      ref.read(dashboardRefreshTrigger.notifier).update((s) => s + 1);
+      HapticFeedback.mediumImpact();
+      navigator.pop();
+      messenger.showSnackBar(SnackBar(content: Text('Gasto repetido: ${formatSoles(monto)}')));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('Error: $e')));
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   Future<void> _pickPhoto(ImageSource source) async {
     final picked = await ImagePicker().pickImage(source: source, imageQuality: 75, maxWidth: 1600);
     if (picked == null) return;
@@ -206,6 +236,10 @@ class _ExpenseSheetState extends ConsumerState<ExpenseSheet> {
       onDateChanged: (d) => setState(() => _date = d),
       saveBar: RecordSaveBar(label: 'Guardar gasto', saving: _saving, onSave: _save, total: _total),
       children: [
+        if (ref.watch(ultimoGastoProvider(widget.campanaId)).value case final ultimo?) ...[
+          _RepetirCard(gasto: ultimo, saving: _saving, onRepetir: () => _repetir(ultimo)),
+          const SizedBox(height: 22),
+        ],
         const StepTitle(number: 1, title: 'Categoría de gasto'),
         SelectPillRow<String>(
           options: [for (final (key, label, icon) in expenseCategories) (key, label, icon)],
@@ -363,24 +397,12 @@ class _ExpenseSheetState extends ConsumerState<ExpenseSheet> {
       ];
 
   Future<void> _addCustomExtra() async {
-    final ctrl = TextEditingController();
-    final name = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Gasto adicional'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          textCapitalization: TextCapitalization.sentences,
-          decoration: const InputDecoration(hintText: 'Ej. Combustible moto'),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancelar')),
-          TextButton(onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()), child: const Text('Agregar')),
-        ],
-      ),
+    final name = await showTextInputDialog(
+      context,
+      title: 'Gasto adicional',
+      hint: 'Ej. Combustible moto',
+      confirmLabel: 'Agregar',
     );
-    ctrl.dispose();
     if (name != null && name.isNotEmpty) setState(() => _extras.add(_Extra(name)));
   }
 }
@@ -456,6 +478,59 @@ class _ExtraRow extends StatelessWidget {
           icon: Icon(Icons.close_rounded, color: AppColors.textSubtle),
         ),
       ],
+    );
+  }
+}
+
+/// Tarjeta "repetir el último gasto" (Diseño v2 §2, registro rápido).
+class _RepetirCard extends StatelessWidget {
+  final Map<String, dynamic> gasto;
+  final bool saving;
+  final VoidCallback onRepetir;
+
+  const _RepetirCard({required this.gasto, required this.saving, required this.onRepetir});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final categoria = gasto['categoria'] as String? ?? 'Gasto';
+    final (_, nombre, icon) = expenseCategories.firstWhere((c) => c.$1 == categoria, orElse: () => (categoria, categoria, Icons.replay_rounded));
+    final fecha = DateTime.tryParse(gasto['fecha'] as String? ?? '');
+    final detalle = [
+      if (fecha != null) DateFormat('d MMM', 'es').format(fecha),
+      if (gasto['etapa'] != null) gasto['etapa'] as String,
+      if (gasto['estado_pago'] == 'por_pagar') 'fiado',
+    ].join(' · ');
+    return GlassCard(
+      radius: 18,
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(color: AppColors.accentSoft, borderRadius: BorderRadius.circular(14)),
+            child: Icon(icon, color: AppColors.accent),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Repetir: $nombre ${formatSoles((gasto['monto'] as num).toDouble())}', style: text.titleSmall, maxLines: 1, overflow: TextOverflow.ellipsis),
+                Text('Último gasto · $detalle', style: text.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          FilledButton.icon(
+            onPressed: saving ? null : onRepetir,
+            style: FilledButton.styleFrom(backgroundColor: AppColors.accent, foregroundColor: AppColors.onAccent),
+            icon: const Icon(Icons.replay_rounded, size: 18),
+            label: const Text('Repetir'),
+          ),
+        ],
+      ),
     );
   }
 }
