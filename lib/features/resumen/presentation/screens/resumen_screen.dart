@@ -191,7 +191,7 @@ class _ResumenScreenState extends ConsumerState<ResumenScreen> {
           label: 'Ver historial completo',
           icon: Icons.calendar_month_rounded,
           height: 54,
-          onPressed: () => context.go('/c/${campana.id}/historial'),
+          onPressed: () => context.push('/c/${campana.id}/historial'),
         ),
         const SizedBox(height: 10),
         if (campana.isActive)

@@ -26,6 +26,9 @@ class AgroControlApp extends ConsumerWidget {
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       themeMode: ref.watch(themeModeProvider),
+      // Sin interpolar: los colores de AppColors cambian de golpe y el tema de
+      // Material debe cambiar con ellos, si no se ven mezclados un instante.
+      themeAnimationDuration: Duration.zero,
       routerConfig: router,
       builder: (context, child) {
         final palette = Theme.of(context).brightness == Brightness.dark
@@ -33,15 +36,45 @@ class AgroControlApp extends ConsumerWidget {
             : AgroPalette.light;
         AppColors.use(palette);
 
-        // La clave fuerza a redibujar todas las pantallas con la nueva paleta.
         return AnnotatedRegion<SystemUiOverlayStyle>(
           value: (palette.isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark).copyWith(
             statusBarColor: Colors.transparent,
             systemNavigationBarColor: palette.background,
           ),
-          child: KeyedSubtree(key: ValueKey(palette.brightness), child: child!),
+          child: _PaletteScope(palette: palette, child: child!),
         );
       },
     );
   }
+}
+
+/// Al cambiar de paleta redibuja todas las pantallas (incluidas las que están
+/// ocultas o en caché del router) sin desmontarlas: conservan su estado y
+/// toman los nuevos colores de [AppColors] en el mismo cuadro.
+class _PaletteScope extends StatefulWidget {
+  final AgroPalette palette;
+  final Widget child;
+
+  const _PaletteScope({required this.palette, required this.child});
+
+  @override
+  State<_PaletteScope> createState() => _PaletteScopeState();
+}
+
+class _PaletteScopeState extends State<_PaletteScope> {
+  @override
+  void didUpdateWidget(_PaletteScope oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.palette != widget.palette) {
+      void marcar(Element e) {
+        e.markNeedsBuild();
+        e.visitChildren(marcar);
+      }
+
+      (context as Element).visitChildren(marcar);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
