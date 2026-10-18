@@ -1130,6 +1130,7 @@ final syncManagerProvider = Provider<SyncManager>((ref) {
     ref.watch(syncQueueServiceProvider),
     ref.watch(dioClientProvider),
     ref.watch(connectivityServiceProvider),
+    onServerOk: (t) => ref.read(ultimaSyncProvider.notifier).set(t),
   );
   manager.init();
   ref.onDispose(() => manager.dispose());
@@ -1139,3 +1140,32 @@ final syncManagerProvider = Provider<SyncManager>((ref) {
 final syncPendingCountProvider = StreamProvider<int>((ref) {
   return ref.watch(syncManagerProvider).pendingCountStream;
 });
+
+/// Última vez que el servidor respondió bien. Se guarda para mostrarla en
+/// Perfil aunque se cierre la app.
+class UltimaSyncNotifier extends StateNotifier<DateTime?> {
+  static const _key = 'ultima_sync';
+  final FlutterSecureStorage _storage;
+
+  UltimaSyncNotifier(this._storage) : super(null) {
+    _restore();
+  }
+
+  Future<void> _restore() async {
+    try {
+      final saved = DateTime.tryParse(await _storage.read(key: _key) ?? '');
+      if (saved != null) state = saved;
+    } catch (_) {}
+  }
+
+  Future<void> set(DateTime t) async {
+    state = t;
+    try {
+      await _storage.write(key: _key, value: t.toIso8601String());
+    } catch (_) {}
+  }
+}
+
+final ultimaSyncProvider = StateNotifierProvider<UltimaSyncNotifier, DateTime?>(
+  (ref) => UltimaSyncNotifier(ref.watch(secureStorageProvider)),
+);

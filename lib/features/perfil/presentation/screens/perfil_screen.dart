@@ -1,13 +1,30 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../../../../core/providers/app_providers.dart';
 import '../../../../core/providers/despacho_aviso_provider.dart';
 import '../../../../core/providers/topo_provider.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_theme.dart';
 import '../../../../core/theme/theme_mode_provider.dart';
 import '../../../../core/widgets/form_pieces.dart';
 import '../../../../core/widgets/glass.dart';
+
+final _numero = NumberFormat('#,##0.##', 'es_419');
+
+final _versionProvider = FutureProvider<String>((ref) async => (await PackageInfo.fromPlatform()).version);
+
+/// "hace 5 min", "ayer", "el 12/10"… para la última sincronización.
+String haceCuanto(DateTime t, [DateTime? ahora]) {
+  final d = (ahora ?? DateTime.now()).difference(t);
+  if (d.inMinutes < 1) return 'hace un momento';
+  if (d.inMinutes < 60) return 'hace ${d.inMinutes} min';
+  if (d.inHours < 24) return 'hace ${d.inHours} h';
+  if (d.inDays == 1) return 'ayer';
+  return 'el ${DateFormat('dd/MM').format(t)}';
+}
 
 /// Perfil: datos de la cuenta, sincronización, preferencias y salida.
 /// Solo muestra lo que la app de verdad hace.
@@ -28,11 +45,10 @@ class _PerfilScreenState extends ConsumerState<PerfilScreen> {
     try {
       final manager = ref.read(syncManagerProvider);
       await manager.syncPending();
-      await manager.pullRemoteChanges();
+      final respondio = await manager.pullRemoteChanges();
       await manager.refreshPendingCount();
-      final pendientes = ref.read(syncPendingCountProvider).value ?? 0;
       messenger.showSnackBar(SnackBar(
-        content: Text(pendientes == 0 ? 'Todo está subido' : 'Sin conexión con el servidor: se subirá luego'),
+        content: Text(respondio ? 'Sincronizado' : 'Sin conexión con el servidor: se subirá luego'),
       ));
     } catch (_) {
       messenger.showSnackBar(const SnackBar(content: Text('Sin conexión: se sincronizará luego')));
@@ -117,7 +133,11 @@ class _PerfilScreenState extends ConsumerState<PerfilScreen> {
     final pendientes = ref.watch(syncPendingCountProvider).value ?? 0;
     final campanas = ref.watch(campanaListProvider).campanas;
     final activas = campanas.where((c) => !c.isClosed).length;
-    final terrenos = ref.watch(terrenosProvider).value?.length ?? 0;
+    final terrenos = ref.watch(terrenosProvider).value ?? const [];
+    final m2PorTopo = ref.watch(m2PorTopoProvider);
+    final hectareas = terrenos.fold<double>(0, (t, e) => t + aHectareas(e.area, e.unidad, m2PorTopo));
+    final ultimaSync = ref.watch(ultimaSyncProvider);
+    final version = ref.watch(_versionProvider).value;
     final modo = ref.watch(themeModeProvider);
 
     return AgroBackground(
@@ -146,29 +166,43 @@ class _PerfilScreenState extends ConsumerState<PerfilScreen> {
               highlight: true,
               radius: 24,
               padding: const EdgeInsets.all(16),
-              child: Row(
+              child: Column(
                 children: [
-                  Container(
-                    width: 60,
-                    height: 60,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(gradient: AppColors.ctaGradient, shape: BoxShape.circle),
-                    child: Text(user?.initials ?? '?', style: text.titleLarge?.copyWith(color: AppColors.onAccent, fontWeight: FontWeight.w800)),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(user?.nombreCompleto ?? 'Agricultor', style: text.titleMedium, maxLines: 1, overflow: TextOverflow.ellipsis),
-                        Text(user?.email ?? '', style: text.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis),
-                        const SizedBox(height: 6),
-                        _Pill(
-                          icon: (user?.isPremium ?? false) ? Icons.workspace_premium_rounded : Icons.eco_outlined,
-                          label: (user?.isPremium ?? false) ? 'Plan Premium' : 'Plan Gratuito',
+                  Row(
+                    children: [
+                      Container(
+                        width: 60,
+                        height: 60,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(gradient: AppColors.ctaGradient, shape: BoxShape.circle),
+                        child: Text(user?.initials ?? '?', style: text.titleLarge?.copyWith(color: AppColors.onAccent, fontWeight: FontWeight.w800)),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(user?.nombreCompleto ?? 'Agricultor', style: text.titleMedium, maxLines: 1, overflow: TextOverflow.ellipsis),
+                            Text(user?.email ?? '', style: text.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis),
+                            const SizedBox(height: 6),
+                            _Pill(
+                              icon: (user?.isPremium ?? false) ? Icons.workspace_premium_rounded : Icons.eco_outlined,
+                              label: (user?.isPremium ?? false) ? 'Plan Premium' : 'Plan Gratuito',
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Divider(height: 1, color: AppColors.cardBorder),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      _Cifra(valor: '${campanas.length}', etiqueta: campanas.length == 1 ? 'campaña' : 'campañas'),
+                      _Cifra(valor: '${terrenos.length}', etiqueta: terrenos.length == 1 ? 'terreno' : 'terrenos'),
+                      _Cifra(valor: _numero.format(hectareas), etiqueta: 'ha en total'),
+                    ],
                   ),
                 ],
               ),
@@ -179,13 +213,12 @@ class _PerfilScreenState extends ConsumerState<PerfilScreen> {
               _Tile(
                 icon: Icons.eco_rounded,
                 title: 'Mis campañas',
-                subtitle: '$activas activa${activas == 1 ? '' : 's'} · ${campanas.length} en total',
+                subtitle: '$activas activa${activas == 1 ? '' : 's'}',
                 onTap: () => context.go('/campanas'),
               ),
               _Tile(
                 icon: Icons.landscape_rounded,
                 title: 'Mis terrenos',
-                subtitle: terrenos == 0 ? 'Aún no hay terrenos' : '$terrenos terreno${terrenos == 1 ? '' : 's'}',
                 onTap: () => context.push('/terrenos'),
               ),
               _Tile(
@@ -194,20 +227,19 @@ class _PerfilScreenState extends ConsumerState<PerfilScreen> {
                 subtitle: 'Calidades, filas y envase de la hoja',
                 onTap: () => context.push('/plantillas'),
               ),
-              _Tile(
-                icon: Icons.add_circle_outline_rounded,
-                title: 'Nueva campaña',
-                onTap: () => context.push('/nueva-campana'),
-              ),
             ]),
             const SizedBox(height: 22),
             const SectionHeader(title: 'Sincronización'),
             _Group(children: [
               _Tile(
-                icon: pendientes == 0 ? Icons.cloud_done_outlined : Icons.cloud_upload_outlined,
-                iconColor: pendientes == 0 ? AppColors.accent : AppColors.warning,
-                title: pendientes == 0 ? 'Todo está subido' : '$pendientes cambio${pendientes == 1 ? '' : 's'} por subir',
-                subtitle: 'Todo se guarda primero en el teléfono',
+                icon: pendientes > 0
+                    ? Icons.cloud_upload_outlined
+                    : (ultimaSync == null ? Icons.cloud_off_outlined : Icons.cloud_done_outlined),
+                iconColor: pendientes > 0 || ultimaSync == null ? AppColors.warning : AppColors.accent,
+                title: pendientes > 0
+                    ? '$pendientes cambio${pendientes == 1 ? '' : 's'} por subir'
+                    : (ultimaSync == null ? 'Aún sin conectar al servidor' : 'Al día con el servidor'),
+                subtitle: ultimaSync == null ? 'Se guarda primero en el teléfono' : 'Última vez ${haceCuanto(ultimaSync)}',
                 trailing: _syncing
                     ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
                     : Text('Sincronizar', style: text.labelMedium?.copyWith(color: AppColors.accent, fontWeight: FontWeight.w700)),
@@ -245,13 +277,69 @@ class _PerfilScreenState extends ConsumerState<PerfilScreen> {
               _Tile(
                 icon: Icons.square_foot_rounded,
                 title: 'Tamaño del topo',
-                subtitle: '1 topo = ${ref.watch(m2PorTopoProvider).toStringAsFixed(0)} m² en tu zona',
+                subtitle: '1 topo = ${_numero.format(m2PorTopo)} m² en tu zona',
                 onTap: _editarTopo,
               ),
             ]),
             const SizedBox(height: 28),
-            AgroActionButton(label: 'Cerrar sesión', icon: Icons.logout_rounded, onPressed: _cerrarSesion),
+            _CerrarSesionButton(onPressed: _cerrarSesion),
+            if (version != null) ...[
+              const SizedBox(height: 16),
+              Center(child: Text('AgroControl $version', style: text.bodySmall?.copyWith(color: AppColors.textSubtle))),
+            ],
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Cifra extends StatelessWidget {
+  final String valor;
+  final String etiqueta;
+
+  const _Cifra({required this.valor, required this.etiqueta});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        children: [
+          Text(valor, style: AppTheme.display(fontSize: 20, color: AppColors.text)),
+          Text(etiqueta, style: Theme.of(context).textTheme.bodySmall),
+        ],
+      ),
+    );
+  }
+}
+
+/// Salir es destructivo: va en rojo suave, no en el menta de las acciones.
+class _CerrarSesionButton extends StatelessWidget {
+  final VoidCallback onPressed;
+
+  const _CerrarSesionButton({required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = AppColors.error;
+    final shape = BorderRadius.circular(16);
+    return Material(
+      color: color.withValues(alpha: 0.08),
+      borderRadius: shape,
+      child: InkWell(
+        borderRadius: shape,
+        onTap: onPressed,
+        child: Container(
+          height: 52,
+          decoration: BoxDecoration(borderRadius: shape, border: Border.all(color: color.withValues(alpha: 0.4))),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.logout_rounded, size: 20, color: color),
+              const SizedBox(width: 10),
+              Text('Cerrar sesión', style: Theme.of(context).textTheme.titleSmall?.copyWith(color: color, fontWeight: FontWeight.w700)),
+            ],
+          ),
         ),
       ),
     );

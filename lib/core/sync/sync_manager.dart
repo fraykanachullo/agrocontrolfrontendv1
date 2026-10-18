@@ -20,7 +20,10 @@ class SyncManager {
   final StreamController<int> _pendingCountController =
       StreamController<int>.broadcast();
 
-  SyncManager(this._queueService, this._dioClient, this._connectivityService);
+  /// Se llama cada vez que el servidor responde bien (subida o descarga).
+  final void Function(DateTime)? onServerOk;
+
+  SyncManager(this._queueService, this._dioClient, this._connectivityService, {this.onServerOk});
 
   Stream<SyncStatus> get statusStream => _statusController.stream;
   Stream<int> get pendingCountStream => _pendingCountController.stream;
@@ -74,6 +77,7 @@ class SyncManager {
 
       await _refreshPendingCount();
       final remaining = await _queueService.getPendingCount();
+      if (remaining == 0) onServerOk?.call(DateTime.now());
       _updateStatus(remaining > 0 ? SyncStatus.error : SyncStatus.idle);
     } catch (e) {
       _updateStatus(SyncStatus.error);
@@ -145,9 +149,10 @@ class SyncManager {
     }
   }
 
-  Future<void> pullRemoteChanges() async {
+  /// Descarga los cambios del servidor. Devuelve `true` si respondió.
+  Future<bool> pullRemoteChanges() async {
     final isOnline = await _connectivityService.isConnected;
-    if (!isOnline) return;
+    if (!isOnline) return false;
 
     try {
       final response = await _dioClient.dio.get(
@@ -156,8 +161,11 @@ class SyncManager {
       if (response.statusCode == 200) {
         final data = response.data['data'];
         await _mergeRemoteData(data);
+        onServerOk?.call(DateTime.now());
+        return true;
       }
     } catch (_) {}
+    return false;
   }
 
   Future<void> _mergeRemoteData(Map<String, dynamic> data) async {

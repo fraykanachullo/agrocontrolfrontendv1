@@ -45,6 +45,7 @@ dependencies:
   # Ubicación del terreno (GPS) y abrirla en el mapa
   geolocator: ^14.0.2
   url_launcher: ^6.3.2
+  package_info_plus: ^9.0.1
 
 dev_dependencies:
   flutter_test:
