@@ -271,3 +271,38 @@ class SectionHeader extends StatelessWidget {
     );
   }
 }
+
+/// Cuadrícula cuyas filas toman el alto de su contenido (no un alto
+/// proporcional al ancho): no se desborda en pantallas angostas ni con la
+/// letra agrandada. Las tarjetas de una misma fila quedan del mismo alto.
+class GrillaAjustada extends StatelessWidget {
+  final int columnas;
+  final double espacio;
+  final List<Widget> children;
+
+  const GrillaAjustada({super.key, required this.columnas, this.espacio = 10, required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    final filas = [for (var i = 0; i < children.length; i += columnas) children.sublist(i, (i + columnas).clamp(0, children.length))];
+    return Column(
+      children: [
+        for (final (f, fila) in filas.indexed)
+          Padding(
+            padding: EdgeInsets.only(bottom: f < filas.length - 1 ? espacio : 0),
+            child: IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var c = 0; c < columnas; c++) ...[
+                    if (c > 0) SizedBox(width: espacio),
+                    Expanded(child: c < fila.length ? fila[c] : const SizedBox.shrink()),
+                  ],
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}

@@ -250,14 +250,8 @@ class _ActionGrid extends StatelessWidget {
     ];
     final text = Theme.of(context).textTheme;
 
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      padding: EdgeInsets.zero,
-      physics: const NeverScrollableScrollPhysics(),
-      mainAxisSpacing: 10,
-      crossAxisSpacing: 10,
-      childAspectRatio: 2.15,
+    return GrillaAjustada(
+      columnas: 2,
       children: [
         for (final (tipo, label, caption) in actions)
           Builder(builder: (context) {
