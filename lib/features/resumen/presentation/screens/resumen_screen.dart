@@ -60,7 +60,9 @@ class _Figures {
   });
 
   factory _Figures.from(Map<String, dynamic>? data, List<Cosecha> liquidadas, List<Cosecha> pendientes) {
-    final ventasNetas = liquidadas.fold<double>(0, (s, c) => s + (c.montoNetoFinal ?? c.montoNetoCalculado));
+    // Solo lo cobrado suma a ventas y utilidad; lo liquidado sin cobrar va en "por cobrar".
+    final cobradas = liquidadas.where((c) => c.etapa == EtapaDespacho.cobrado).toList();
+    final ventasNetas = cobradas.fold<double>(0, (s, c) => s + (c.montoNetoFinal ?? c.montoNetoCalculado));
     final totalIngresos = (data?['total_ingresos'] as double?) ?? 0;
     final despachos = liquidadas.where((c) => !c.enCampo).map(calidadesDe).expand((l) => l);
     return _Figures(
@@ -76,9 +78,9 @@ class _Figures {
       gastos: (data?['total_gastos'] as double?) ?? 0,
       ingresosDirectos: (totalIngresos - ((data?['ingresos_ventas'] as double?) ?? 0)).clamp(0, double.infinity),
       ventasNetas: ventasNetas,
-      descuentos: liquidadas.fold<double>(0, (s, c) => s + (c.descuentosLogistica ?? 0)),
-      bultos: liquidadas.fold<int>(0, (s, c) => s + c.cantidadUnidades),
-      ventas: liquidadas.length,
+      descuentos: cobradas.fold<double>(0, (s, c) => s + (c.descuentosLogistica ?? 0)),
+      bultos: cobradas.fold<int>(0, (s, c) => s + c.cantidadUnidades),
+      ventas: cobradas.length,
       unidad: liquidadas.map((c) => c.unidadEmpaque).whereType<String>().firstOrNull ?? 'bulto',
     );
   }
@@ -442,9 +444,9 @@ class _PendingCard extends StatelessWidget {
       child: Column(
         children: [
           if (f.porCobrarLiquidado > 0)
-            fila(Icons.schedule_rounded, 'Liquidado sin cobrar', 'El comisionista aún no paga', _soles(f.porCobrarLiquidado), AppColors.warning),
+            fila(Icons.schedule_rounded, 'Liquidado sin cobrar', 'El comisionista aún no paga · no suma a la utilidad', _soles(f.porCobrarLiquidado), AppColors.warning),
           if (f.ingresosPorCobrar > 0)
-            fila(Icons.north_east_rounded, 'Ventas fiadas', 'Ingresos del cuaderno por cobrar', _soles(f.ingresosPorCobrar), AppColors.warning),
+            fila(Icons.north_east_rounded, 'Ventas fiadas', 'Te deben · no suma a la utilidad', _soles(f.ingresosPorCobrar), AppColors.warning),
           if (f.despachosSinLiquidar > 0)
             fila(
               Icons.local_shipping_outlined,

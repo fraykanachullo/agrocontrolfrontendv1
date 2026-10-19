@@ -116,6 +116,11 @@ class CampaignTile extends StatelessWidget {
                           '${r!.porLiquidar} despacho${r.porLiquidar == 1 ? '' : 's'} por liquidar',
                           style: text.labelSmall?.copyWith(color: AppColors.warning),
                         ),
+                      if ((r?.porCobrar ?? 0) > 0)
+                        Text(
+                          'Te deben ${formatSoles(r!.porCobrar)} (no suma aún)',
+                          style: text.labelSmall?.copyWith(color: AppColors.warning),
+                        ),
                     ],
                   ),
                 ),

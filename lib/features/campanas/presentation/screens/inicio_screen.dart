@@ -80,7 +80,7 @@ class _InicioScreenState extends ConsumerState<InicioScreen> {
         const SizedBox(height: 14),
         _CampaignChip(campana: campana, stage: stage, onTap: () => _showCampaignSwitcher(campana)),
         const SizedBox(height: 16),
-        _BalanceCard(data: data, campana: campana, stage: stage, soldUnits: _soldUnits(cosechas.entregadas)),
+        _BalanceCard(data: data, campana: campana, stage: stage),
         const SizedBox(height: 24),
         SectionHeader(title: 'Acciones rápidas', actionLabel: 'Más', onAction: () => _showMoreActions(campana)),
         if (campana.isClosed)
@@ -114,9 +114,6 @@ class _InicioScreenState extends ConsumerState<InicioScreen> {
       ],
     );
   }
-
-  static int _soldUnits(List<Cosecha> entregadas) =>
-      entregadas.fold<int>(0, (sum, c) => sum + c.cantidadUnidades);
 
   // ── Acciones ──
 
@@ -339,9 +336,8 @@ class _BalanceCard extends StatelessWidget {
   final Map<String, dynamic>? data;
   final Campana campana;
   final CampaignStage stage;
-  final int soldUnits;
 
-  const _BalanceCard({required this.data, required this.campana, required this.stage, required this.soldUnits});
+  const _BalanceCard({required this.data, required this.campana, required this.stage});
 
   @override
   Widget build(BuildContext context) {
@@ -349,6 +345,8 @@ class _BalanceCard extends StatelessWidget {
     final balance = (data?['balance'] as double?) ?? 0;
     final gastos = (data?['total_gastos'] as double?) ?? 0;
     final ingresos = (data?['total_ingresos'] as double?) ?? 0;
+    final ventasPorCobrar = (data?['ventas_por_cobrar'] as double?) ?? 0;
+    final ingresosPorCobrar = (data?['ingresos_por_cobrar'] as double?) ?? 0;
     final positive = balance >= 0;
 
     // "S/ 48,320.20" → parte entera destacada y decimales atenuados.
@@ -412,7 +410,7 @@ class _BalanceCard extends StatelessWidget {
                   label: 'Ingresos',
                   value: 'S/ ${_amount.format(ingresos)}',
                   color: AppColors.positive,
-                  caption: soldUnits > 0 ? '${_count.format(soldUnits)} bultos vendidos' : 'Ventas y cobros',
+                  caption: 'Ya cobrado',
                 ),
               ),
               const SizedBox(width: 10),
@@ -427,6 +425,16 @@ class _BalanceCard extends StatelessWidget {
               ),
             ],
           ),
+          if (ventasPorCobrar + ingresosPorCobrar > 0) ...[
+            const SizedBox(height: 12),
+            _TeDeben(
+              ventas: ventasPorCobrar,
+              despachos: (data?['ventas_por_cobrar_cantidad'] as int?) ?? 0,
+              ingresos: ingresosPorCobrar,
+              fiados: (data?['ingresos_por_cobrar_cantidad'] as int?) ?? 0,
+              onTap: () => context.go('/c/${campana.id}/${ventasPorCobrar > 0 ? 'cosechas' : 'cuaderno'}'),
+            ),
+          ],
         ],
       ),
     );
@@ -439,10 +447,65 @@ class _BalanceCard extends StatelessWidget {
         title: const Text('¿Cómo se calcula?'),
         content: const Text(
           'Balance = ingresos − gastos.\n\n'
-          'Ingresos: ventas en campo, ingresos directos y despachos ya liquidados (neto, después de comisión y flete).\n\n'
+          'Ingresos: solo lo que ya cobraste (ventas en campo, ingresos directos y despachos liquidados y cobrados, neto de comisión y flete).\n\n'
+          'Lo que te deben aparece aparte como "Te deben" y suma recién cuando marcas que te pagaron.\n\n'
           'Rentabilidad = balance ÷ gastos. Indica cuánto ganaste por cada sol invertido.',
         ),
         actions: [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Entendido'))],
+      ),
+    );
+  }
+}
+
+/// Alerta dentro del balance: dinero que aún no entra y por eso no suma.
+class _TeDeben extends StatelessWidget {
+  final double ventas;
+  final int despachos;
+  final double ingresos;
+  final int fiados;
+  final VoidCallback onTap;
+
+  const _TeDeben({required this.ventas, required this.despachos, required this.ingresos, required this.fiados, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final color = AppColors.warning;
+    final detalle = [
+      if (despachos > 0) '$despachos despacho${despachos == 1 ? '' : 's'} sin cobrar',
+      if (fiados > 0) '$fiados venta${fiados == 1 ? '' : 's'} fiada${fiados == 1 ? '' : 's'}',
+    ].join(' · ');
+
+    return Material(
+      color: color.withValues(alpha: 0.10),
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: color.withValues(alpha: 0.35)),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: color, size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Te deben S/ ${_amount.format(ventas + ingresos)}',
+                        style: text.titleSmall?.copyWith(color: color, fontWeight: FontWeight.w800)),
+                    Text('$detalle · no suma al balance hasta que te paguen', style: text.bodySmall),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: color),
+            ],
+          ),
+        ),
       ),
     );
   }

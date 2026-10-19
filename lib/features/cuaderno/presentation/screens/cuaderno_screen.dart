@@ -395,14 +395,35 @@ class _Stat extends StatelessWidget {
 
 /// Registro en la línea de tiempo: punto + línea a la izquierda, tarjeta a la derecha.
 /// Registro en la línea de tiempo (cuaderno e historial).
-class HistorialTimelineItem extends StatelessWidget {
+class HistorialTimelineItem extends ConsumerWidget {
   final HistorialEntry entry;
   final bool isLast;
 
   const HistorialTimelineItem({super.key, required this.entry, required this.isLast});
 
+  /// Ingreso fiado → "Ya me pagaron" (recién suma al balance); gasto fiado → "Ya pagué".
+  Future<void> _marcarPagado(BuildContext context, WidgetRef ref) async {
+    final monto = formatSoles(entry.monto ?? 0);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(entry.teDeben ? '¿Ya te pagaron?' : '¿Ya pagaste?'),
+        content: Text(entry.teDeben
+            ? '${entry.titulo}: $monto. Al marcarlo como cobrado se suma al balance.'
+            : '${entry.titulo}: $monto. Se quita de lo que debes.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Todavía no')),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(true), child: Text(entry.teDeben ? 'Ya me pagaron' : 'Ya pagué')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await ref.read(campanaLocalDatasourceProvider).marcarPagado(entry.transaccionId!);
+    ref.read(dashboardRefreshTrigger.notifier).update((s) => s + 1);
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final text = Theme.of(context).textTheme;
     final (tipoLabel, icon, color) = entryStyle(entry.tipo);
     final monto = entry.monto;
@@ -438,6 +459,7 @@ class HistorialTimelineItem extends StatelessWidget {
               child: GlassCard(
                 radius: 18,
                 padding: const EdgeInsets.all(14),
+                onTap: entry.transaccionId != null && (entry.teDeben || entry.debes) ? () => _marcarPagado(context, ref) : null,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -488,11 +510,18 @@ class HistorialTimelineItem extends StatelessWidget {
                           const SizedBox(width: 8),
                           Text(
                             '${entry.tipo == 'gasto' ? '-' : '+'}${formatSoles(monto)}',
-                            style: AppTheme.display(fontSize: 14, color: color),
+                            style: AppTheme.display(fontSize: 14, color: entry.teDeben ? AppColors.textSubtle : color),
                           ),
                         ],
                       ],
                     ),
+                    if (entry.teDeben || entry.debes) ...[
+                      const SizedBox(height: 8),
+                      _AvisoPago(
+                        teDeben: entry.teDeben,
+                        accion: entry.transaccionId == null ? 'Márcalo como cobrado en el despacho' : null,
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -500,6 +529,33 @@ class HistorialTimelineItem extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Aviso en un registro fiado: te deben (no suma aún al balance) o debes.
+class _AvisoPago extends StatelessWidget {
+  final bool teDeben;
+
+  /// Qué hacer cuando no se puede marcar desde aquí (despachos).
+  final String? accion;
+
+  const _AvisoPago({required this.teDeben, this.accion});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = teDeben ? AppColors.warning : AppColors.expense;
+    final texto = teDeben
+        ? 'Te deben · no suma al balance. ${accion ?? 'Toca si ya te pagaron'}'
+        : 'Debes este gasto. Toca si ya pagaste';
+    return Row(
+      children: [
+        Icon(teDeben ? Icons.warning_amber_rounded : Icons.pending_actions_rounded, size: 16, color: color),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(texto, style: Theme.of(context).textTheme.labelSmall?.copyWith(color: color, fontWeight: FontWeight.w700)),
+        ),
+      ],
     );
   }
 }

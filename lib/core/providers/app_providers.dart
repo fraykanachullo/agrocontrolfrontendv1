@@ -409,7 +409,17 @@ class CampanaResumen {
   final int cosechas;
   final int porLiquidar;
 
-  const CampanaResumen({required this.gastos, required this.ingresos, required this.cosechas, required this.porLiquidar});
+  /// Lo que deben (ingresos fiados y despachos liquidados sin cobrar): no
+  /// suma en [ingresos] hasta que se cobre.
+  final double porCobrar;
+
+  const CampanaResumen({
+    required this.gastos,
+    required this.ingresos,
+    required this.cosechas,
+    required this.porLiquidar,
+    this.porCobrar = 0,
+  });
 
   double get utilidad => ingresos - gastos;
   double? get rentabilidad => gastos > 0 ? utilidad / gastos * 100 : null;
@@ -426,6 +436,7 @@ final campanaResumenesProvider = FutureProvider<Map<int, CampanaResumen>>((ref) 
         ingresos: (r['ingresos_directos'] as num).toDouble() + (r['ventas'] as num).toDouble(),
         cosechas: r['cosechas'] as int,
         porLiquidar: r['por_liquidar'] as int,
+        porCobrar: (r['por_cobrar'] as num).toDouble(),
       ),
   };
 });
@@ -989,6 +1000,12 @@ class HistorialEntry {
   /// Fecha y hora del registro (para agrupar por día en el historial).
   final DateTime? fecha;
 
+  /// Solo en ingresos y gastos: permite marcar "ya me pagaron" / "ya pagué".
+  final int? transaccionId;
+
+  /// `por_cobrar` (te deben), `por_pagar` (debes) o `pagado`.
+  final String? estadoPago;
+
   const HistorialEntry({
     required this.tipo,
     required this.titulo,
@@ -997,7 +1014,12 @@ class HistorialEntry {
     this.monto,
     this.isSynced = false,
     this.fecha,
+    this.transaccionId,
+    this.estadoPago,
   });
+
+  bool get teDeben => estadoPago == 'por_cobrar';
+  bool get debes => estadoPago == 'por_pagar';
 }
 
 String _isoDia(DateTime d) =>
@@ -1066,6 +1088,8 @@ final historialRangoProvider = FutureProvider.family<List<HistorialEntry>, (int,
         monto: (t['monto'] as num?)?.toDouble(),
         isSynced: (t['is_synced'] as int? ?? 0) == 1,
         fecha: DateTime.tryParse(fecha),
+        transaccionId: t['id'] as int?,
+        estadoPago: t['estado_pago'] as String?,
       ),
     );
   }
@@ -1079,6 +1103,8 @@ final historialRangoProvider = FutureProvider.family<List<HistorialEntry>, (int,
     final enCampo = c['tipo_venta'] == 'parcela';
     final synced = (c['is_synced'] as int? ?? 0) == 1;
     final neto = (c['monto_neto_final'] as num?)?.toDouble();
+    // Liquidado pero sin cobrar: se marca como cobrado desde el detalle del despacho.
+    final pagoDespacho = c['estado'] != 'entregado' ? null : (c['fecha_cobro'] == null ? 'por_cobrar' : 'pagado');
 
     if (enRango(envio)) {
       entries.add(
@@ -1092,6 +1118,7 @@ final historialRangoProvider = FutureProvider.family<List<HistorialEntry>, (int,
           monto: enCampo ? neto : null,
           isSynced: synced,
           fecha: DateTime.tryParse(envio),
+          estadoPago: enCampo ? pagoDespacho : null,
         ),
       );
     }
@@ -1105,6 +1132,7 @@ final historialRangoProvider = FutureProvider.family<List<HistorialEntry>, (int,
           monto: neto,
           isSynced: synced,
           fecha: DateTime.tryParse(liquidacion),
+          estadoPago: pagoDespacho,
         ),
       );
     }
