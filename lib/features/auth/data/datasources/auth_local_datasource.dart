@@ -3,6 +3,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:sqflite/sqflite.dart';
 import '../../../../core/config/app_config.dart';
 import '../../../../core/database/app_database.dart';
+import '../huella_clave.dart';
 import '../models/user_model.dart';
 
 class AuthLocalDatasource {
@@ -46,22 +47,23 @@ class AuthLocalDatasource {
 
   // ── SQLite-backed methods ──
 
+  /// Entrar sin señal: compara la huella de la contraseña con la guardada la
+  /// última vez que se entró (o registró) en este teléfono.
   Future<UserModel?> loginOffline(String email, String password) async {
     final db = await AppDatabase.database;
-    final results = await db.query(
-      'users',
-      where: 'email = ? AND password = ?',
-      whereArgs: [email, password],
-    );
+    final results = await db.query('users', where: 'email = ?', whereArgs: [email.trim()]);
     if (results.isEmpty) return null;
+    final guardada = results.first['password'] as String?;
+    if (guardada == null || guardada != huellaClave(email, password)) return null;
     return UserModel.fromJson(results.first);
   }
 
-  /// Guarda o actualiza el usuario sin tocar su contraseña local: un
-  /// `replace` borraba la fila entera y dejaba sin ingreso offline.
-  Future<void> saveUserToDb(UserModel user) async {
+  /// Guarda o actualiza el usuario. Con [password], guarda su huella para
+  /// poder entrar sin señal; sin ella, no toca la que ya había (un `replace`
+  /// borraba la fila entera y dejaba sin ingreso offline).
+  Future<void> saveUserToDb(UserModel user, {String? password}) async {
     final db = await AppDatabase.database;
-    final data = user.toJson();
+    final data = {...user.toJson(), if (password != null) 'password': huellaClave(user.email, password)};
     final updated = await db.update('users', data, where: 'email = ?', whereArgs: [user.email]);
     if (updated == 0) {
       await db.insert('users', data, conflictAlgorithm: ConflictAlgorithm.replace);

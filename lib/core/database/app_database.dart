@@ -1,7 +1,9 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
+import '../../features/auth/data/huella_clave.dart';
 
 class AppDatabase {
   static Database? _database;
@@ -18,7 +20,7 @@ class AppDatabase {
 
     return await openDatabase(
       path,
-      version: 11,
+      version: 12,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -26,7 +28,8 @@ class AppDatabase {
 
   static Future<void> _createDB(Database db, int version) async {
     await _createTables(db);
-    await _seedDemoData(db);
+    // Usuarios y campañas de ejemplo solo en desarrollo, nunca en la app del agricultor.
+    if (kDebugMode) await _seedDemoData(db);
   }
 
   static Future<void> _upgradeDB(
@@ -64,6 +67,10 @@ class AppDatabase {
     }
     if (oldVersion < 10) {
       await _addCicloDespacho(db);
+    }
+    if (oldVersion < 12) {
+      await _huellasDeClaves(db);
+      await _descripcionesPagadas(db);
     }
     if (oldVersion < 11) {
       await _createIncidenciasTable(db);
@@ -455,6 +462,28 @@ class AppDatabase {
     ''');
   }
 
+  /// v12: las contraseñas locales se guardaban en texto; pasan a huella.
+  static Future<void> _huellasDeClaves(Database db) async {
+    final filas = await db.query('users', columns: ['id', 'email', 'password']);
+    for (final f in filas) {
+      final clave = f['password'] as String?;
+      if (clave == null || esHuella(clave)) continue;
+      await db.update('users', {'password': huellaClave(f['email'] as String, clave)}, where: 'id = ?', whereArgs: [f['id']]);
+    }
+  }
+
+  /// v12: lo marcado como pagado conservaba "Me deben" / "Debo (fiado)" en la descripción.
+  static Future<void> _descripcionesPagadas(Database db) async {
+    await db.execute(
+      "UPDATE transacciones SET descripcion = substr(descripcion, 1, length(descripcion) - length('Me deben')) || 'Cobrado' "
+      "WHERE estado_pago = 'pagado' AND (descripcion = 'Me deben' OR descripcion LIKE '% · Me deben')",
+    );
+    await db.execute(
+      "UPDATE transacciones SET descripcion = substr(descripcion, 1, length(descripcion) - length('Debo (fiado)')) || 'Pagado' "
+      "WHERE estado_pago = 'pagado' AND (descripcion = 'Debo (fiado)' OR descripcion LIKE '% · Debo (fiado)')",
+    );
+  }
+
   static Future<void> _seedDemoData(Database db) async {
     final now = DateTime.now().toIso8601String();
 
@@ -462,22 +491,22 @@ class AppDatabase {
       'id': 2,
       'nombre_completo': 'Carlos Mendoza',
       'email': 'agricultor@test.com',
+      'password': huellaClave('agricultor@test.com', 'password123'),
       'telefono': '+51 987 654 321',
       'rol': 'propietario',
       'plan_suscripcion': 'premium',
       'tenant_id': 2,
-      'password': 'password123',
     });
 
     await db.insert('users', {
       'id': 3,
       'nombre_completo': 'Maria Torres',
       'email': 'gratuito@test.com',
+      'password': huellaClave('gratuito@test.com', 'password123'),
       'telefono': '+51 912 345 678',
       'rol': 'propietario',
       'plan_suscripcion': 'gratuito',
       'tenant_id': 1,
-      'password': 'password123',
     });
 
     final terrenoPampa = await db.insert('terrenos', {
