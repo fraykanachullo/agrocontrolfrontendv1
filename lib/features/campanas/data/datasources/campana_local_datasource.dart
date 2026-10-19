@@ -269,6 +269,20 @@ class CampanaLocalDatasource {
   static const _ventaCobrada = "estado = 'entregado' AND fecha_cobro IS NOT NULL";
   static const _ventaPorCobrar = "estado = 'entregado' AND fecha_cobro IS NULL";
 
+  /// Movimientos para el gráfico de tendencia: gastos, ingresos cobrados y
+  /// despachos cobrados (en la fecha del cobro). Sin [campanaId], de todas.
+  Future<List<Map<String, dynamic>>> movimientosTendencia({int? campanaId}) async {
+    final db = await AppDatabase.database;
+    final filtro = campanaId == null ? '' : 'AND campana_id = ?';
+    return db.rawQuery('''
+      SELECT campana_id, tipo, fecha, monto FROM transacciones
+        WHERE monto > 0 AND (tipo = 'gasto' OR (tipo = 'ingreso' AND $_cobrado)) $filtro
+      UNION ALL
+      SELECT campana_id, 'ingreso' AS tipo, COALESCE(fecha_cobro, fecha_liquidacion) AS fecha, monto_neto_final AS monto FROM cosechas
+        WHERE monto_neto_final > 0 AND $_ventaCobrada $filtro
+    ''', [if (campanaId != null) ...[campanaId, campanaId]]);
+  }
+
   /// Ya me pagaron (ingreso fiado) o ya pagué (gasto fiado).
   Future<void> marcarPagado(int transaccionId) async {
     final db = await AppDatabase.database;

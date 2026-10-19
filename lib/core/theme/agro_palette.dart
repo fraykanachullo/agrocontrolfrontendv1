@@ -47,6 +47,17 @@ class AgroPalette {
   /// más claro que el fondo para que no canse la vista.
   final Color sheet;
 
+  /// Líneas y barras de los gráficos: ingresos, gastos y ganancia.
+  /// Pasan el validador de paleta (banda de luminosidad y daltonismo) sobre
+  /// la tarjeta del modo; por eso no son los mismos tonos que el texto.
+  final Color chartIngreso;
+  final Color chartGasto;
+  final Color chartGanancia;
+
+  /// Una línea por campaña (paleta categórica validada, en orden fijo: la
+  /// campaña conserva su color aunque cambie el ranking). Máximo 8.
+  final List<Color> chartSeries;
+
   const AgroPalette({
     required this.scheme,
     required this.background,
@@ -73,6 +84,10 @@ class AgroPalette {
     required this.track,
     required this.navBackground,
     required this.sheet,
+    required this.chartIngreso,
+    required this.chartGasto,
+    required this.chartGanancia,
+    required this.chartSeries,
   });
 
   Brightness get brightness => scheme.brightness;
@@ -157,6 +172,13 @@ class AgroPalette {
     track: Color(0x66000000),
     navBackground: Color(0xE6081610),
     sheet: Color(0xFF13241C),
+    chartIngreso: Color(0xFF10A37F),
+    chartGasto: Color(0xFFE0702F),
+    chartGanancia: Color(0xFF8B7CF6),
+    chartSeries: [
+      Color(0xFF3987E5), Color(0xFFD95926), Color(0xFF199E70), Color(0xFFC98500),
+      Color(0xFFD55181), Color(0xFF008300), Color(0xFF9085E9), Color(0xFFE66767),
+    ],
   );
 
   /// "Botánico": salvia clara con verdes de hoja profundos.
@@ -232,5 +254,12 @@ class AgroPalette {
     track: Color(0xFFDEE8DE),
     navBackground: Color(0xD1FFFFFF),
     sheet: Color(0xFFF2F6F2),
+    chartIngreso: Color(0xFF047857),
+    chartGasto: Color(0xFFC2410C),
+    chartGanancia: Color(0xFF6D28D9),
+    chartSeries: [
+      Color(0xFF2A78D6), Color(0xFFEB6834), Color(0xFF1BAF7A), Color(0xFFEDA100),
+      Color(0xFFE87BA4), Color(0xFF008300), Color(0xFF6250D6), Color(0xFFE34948),
+    ],
   );
 }

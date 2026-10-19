@@ -14,6 +14,7 @@ import '../../../campanas/presentation/campaign_display.dart';
 import '../../../cosechas/domain/entities/cosecha.dart';
 import '../../../cosechas/presentation/liquidacion_model.dart';
 import '../../../cuaderno/domain/entities/incidencia.dart';
+import '../widgets/tendencia_campana.dart';
 import '../../../planillas/presentation/screens/plantillas_screen.dart' show plantillaDeCultivoProvider;
 
 final _amount = NumberFormat('#,##0.00', 'es_419');
@@ -157,6 +158,8 @@ class _ResumenScreenState extends ConsumerState<ResumenScreen> {
           const SizedBox(height: 12),
           _PendingCard(f: f),
         ],
+        const SizedBox(height: 24),
+        TendenciaCampana(campana: campana),
         const SizedBox(height: 24),
         const SectionHeader(title: 'Desglose de la campaña'),
         _Breakdown(f: f),

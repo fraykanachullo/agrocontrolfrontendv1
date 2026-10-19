@@ -6,6 +6,7 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/form_pieces.dart';
 import '../../../../core/widgets/glass.dart';
 import '../../domain/entities/campana.dart';
+import '../../../resumen/presentation/widgets/tendencia_campana.dart';
 import '../campaign_display.dart';
 
 /// Comparativo entre campañas (Diseño v2 §3): por cultivo o por año, con la
@@ -49,6 +50,12 @@ class _ComparativoCampanasState extends State<ComparativoCampanas> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        const TendenciaGeneral(),
+        const SizedBox(height: 24),
+        const SectionHeader(title: 'Ganancia por campaña'),
+        GananciaPorCampana(campanas: widget.campanas, resumenes: widget.resumenes),
+        const SizedBox(height: 24),
+        const SectionHeader(title: 'Por cultivo o por año'),
         Row(
           children: [
             MiniChip(label: 'Por cultivo', large: true, selected: _porCultivo, onTap: () => setState(() => _porCultivo = true)),
@@ -185,6 +192,174 @@ class _Cifra extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Ganancia (o pérdida) de cada campaña en barras que parten de cero:
+/// a la derecha en verde lo que ganó, a la izquierda en naranja lo que perdió.
+/// Solo cuenta lo cobrado; lo que deben se indica aparte.
+class GananciaPorCampana extends StatelessWidget {
+  final List<Campana> campanas;
+  final Map<int, CampanaResumen> resumenes;
+
+  const GananciaPorCampana({super.key, required this.campanas, required this.resumenes});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final filas = [
+      for (final c in campanas)
+        if (resumenes[c.id] case final r? when r.gastos > 0 || r.ingresos > 0) (c, r),
+    ]..sort((a, b) => b.$2.utilidad.compareTo(a.$2.utilidad));
+
+    if (filas.isEmpty) {
+      return GlassCard(
+        radius: 22,
+        padding: const EdgeInsets.all(18),
+        child: Text('Cuando registres gastos y ventas, aquí verás qué campaña te fue mejor.', style: text.bodyMedium),
+      );
+    }
+
+    final maxGanancia = filas.map((f) => f.$2.utilidad).fold<double>(0, (m, u) => u > m ? u : m);
+    final maxPerdida = filas.map((f) => -f.$2.utilidad).fold<double>(0, (m, u) => u > m ? u : m);
+    final rango = maxGanancia + maxPerdida;
+    // Dónde cae el cero: al borde izquierdo si ninguna perdió.
+    final cero = rango == 0 ? 0.0 : maxPerdida / rango;
+    final mejor = filas.first.$2.utilidad > 0 ? filas.first.$1.id : null;
+
+    return GlassCard(
+      radius: 22,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 16,
+            children: [
+              _Clave(color: AppColors.chartIngreso, label: 'Ganó'),
+              if (maxPerdida > 0) _Clave(color: AppColors.chartGasto, label: 'Perdió'),
+            ],
+          ),
+          const SizedBox(height: 12),
+          for (final (c, r) in filas) ...[
+            _FilaGanancia(
+              campana: c,
+              resumen: r,
+              cero: cero,
+              fraccion: rango == 0 ? 0 : r.utilidad.abs() / rango,
+              mejor: c.id == mejor && filas.length > 1,
+            ),
+            const SizedBox(height: 14),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _FilaGanancia extends StatelessWidget {
+  final Campana campana;
+  final CampanaResumen resumen;
+  final double cero;
+  final double fraccion;
+  final bool mejor;
+
+  const _FilaGanancia({required this.campana, required this.resumen, required this.cero, required this.fraccion, required this.mejor});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final u = resumen.utilidad;
+    final gana = u >= 0;
+    final color = gana ? AppColors.chartIngreso : AppColors.chartGasto;
+    const radio = Radius.circular(4);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(cropEmoji(campana.cultivo), style: const TextStyle(fontSize: 16)),
+            const SizedBox(width: 6),
+            Expanded(child: Text(campana.nombre, style: text.titleSmall, maxLines: 1, overflow: TextOverflow.ellipsis)),
+            if (mejor) ...[
+              Icon(Icons.emoji_events_rounded, size: 16, color: AppColors.warning),
+              const SizedBox(width: 4),
+            ],
+            Icon(gana ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded, size: 14, color: color),
+            Text(
+              '${gana ? '+' : '-'}${formatSoles(u.abs())}',
+              style: AppTheme.display(fontSize: 15, color: AppColors.text),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        LayoutBuilder(
+          builder: (context, box) {
+            final w = box.maxWidth;
+            final x0 = w * cero;
+            final largo = (w * fraccion).clamp(u == 0 ? 0.0 : 3.0, w);
+            return SizedBox(
+              height: 12,
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(color: AppColors.track.withValues(alpha: 0.25), borderRadius: BorderRadius.circular(4)),
+                    ),
+                  ),
+                  Positioned(
+                    left: gana ? x0 : x0 - largo,
+                    width: largo,
+                    top: 0,
+                    bottom: 0,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: color,
+                        // Extremo redondeado del lado del dato; recto en el cero.
+                        borderRadius: gana
+                            ? const BorderRadius.horizontal(right: radio)
+                            : const BorderRadius.horizontal(left: radio),
+                      ),
+                    ),
+                  ),
+                  if (cero > 0)
+                    Positioned(left: x0 - 0.5, width: 1, top: -2, bottom: -2, child: ColoredBox(color: AppColors.textSubtle)),
+                ],
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 4),
+        Text(
+          [
+            'Ingresos ${formatSoles(resumen.ingresos)}',
+            'Gastos ${formatSoles(resumen.gastos)}',
+            if (resumen.porCobrar > 0) 'te deben ${formatSoles(resumen.porCobrar)}',
+          ].join(' · '),
+          style: text.labelSmall,
+        ),
+      ],
+    );
+  }
+}
+
+class _Clave extends StatelessWidget {
+  final Color color;
+  final String label;
+
+  const _Clave({required this.color, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(width: 10, height: 10, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(2))),
+        const SizedBox(width: 6),
+        Text(label, style: Theme.of(context).textTheme.labelSmall),
+      ],
     );
   }
 }
