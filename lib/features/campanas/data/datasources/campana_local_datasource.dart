@@ -286,7 +286,25 @@ class CampanaLocalDatasource {
   /// Ya me pagaron (ingreso fiado) o ya pagué (gasto fiado).
   Future<void> marcarPagado(int transaccionId) async {
     final db = await AppDatabase.database;
-    await db.update('transacciones', {'estado_pago': 'pagado'}, where: 'id = ?', whereArgs: [transaccionId]);
+    final fila = (await db.query('transacciones', columns: ['descripcion'], where: 'id = ?', whereArgs: [transaccionId])).firstOrNull;
+    await db.update(
+      'transacciones',
+      {'estado_pago': 'pagado', 'descripcion': descripcionPagada(fila?['descripcion'] as String?)},
+      where: 'id = ?',
+      whereArgs: [transaccionId],
+    );
+  }
+
+  /// Los formularios terminan la descripción con la forma de pago ("Me deben",
+  /// "Debo (fiado)"); al marcar el pago se actualiza para que no contradiga el
+  /// estado.
+  static String? descripcionPagada(String? descripcion) {
+    if (descripcion == null) return null;
+    final partes = descripcion.split(' · ');
+    final ultima = partes.last;
+    if (ultima == 'Me deben') partes[partes.length - 1] = 'Cobrado';
+    if (ultima == 'Debo (fiado)') partes[partes.length - 1] = 'Pagado';
+    return partes.join(' · ');
   }
 
   Future<Map<String, dynamic>> getDashboardData(int campanaId) async {

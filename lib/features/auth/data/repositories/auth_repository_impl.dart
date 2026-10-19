@@ -17,7 +17,7 @@ class AuthRepositoryImpl implements AuthRepository {
       final response = await _remote.login(email, password);
       await _local.saveToken(response.token);
       await _local.saveUser(response.user);
-      await _local.saveUserToDb(response.user);
+      await _local.saveUserToDb(response.user, password: password);
       return response.user;
     } catch (_) {
       // Fallback to offline login
@@ -45,7 +45,7 @@ class AuthRepositoryImpl implements AuthRepository {
       );
       await _local.saveToken(response.token);
       await _local.saveUser(response.user);
-      await _local.saveUserToDb(response.user);
+      await _local.saveUserToDb(response.user, password: password);
       return response.user;
     } catch (_) {
       // Offline: create locally
@@ -56,7 +56,7 @@ class AuthRepositoryImpl implements AuthRepository {
         planSuscripcion: 'gratuito',
         tenantId: 1,
       );
-      await _local.saveUserToDb(user);
+      await _local.saveUserToDb(user, password: password);
       await _local.saveUser(user);
       return user;
     }
