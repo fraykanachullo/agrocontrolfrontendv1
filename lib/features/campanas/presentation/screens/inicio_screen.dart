@@ -693,14 +693,8 @@ class _QuickExpenseGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GridView.count(
-      crossAxisCount: 4,
-      shrinkWrap: true,
-      padding: EdgeInsets.zero,
-      physics: const NeverScrollableScrollPhysics(),
-      mainAxisSpacing: 10,
-      crossAxisSpacing: 10,
-      childAspectRatio: 0.95,
+    return GrillaAjustada(
+      columnas: 4,
       children: [
         for (final (icon, label, categoria) in _quickExpenses)
           GlassCard(

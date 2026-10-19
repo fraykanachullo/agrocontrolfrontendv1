@@ -742,14 +742,8 @@ class _UnitMetrics extends StatelessWidget {
     final rendimiento = (f.bultos > 0 && campana.extension > 0) ? f.bultos / campana.extension : null;
     String money(double? v) => v == null ? '—' : _soles(v);
 
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      padding: EdgeInsets.zero,
-      physics: const NeverScrollableScrollPhysics(),
-      mainAxisSpacing: 10,
-      crossAxisSpacing: 10,
-      childAspectRatio: 1.45,
+    return GrillaAjustada(
+      columnas: 2,
       children: [
         _MetricCard(
           icon: Icons.inventory_2_outlined,
