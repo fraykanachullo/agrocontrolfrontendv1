@@ -18,6 +18,7 @@ String formatSoles(double v) => 'S/ ${_amount.format(v)}';
 Future<void> showRecordSheet(BuildContext context, Widget sheet) {
   return showModalBottomSheet<void>(
     context: context,
+    useRootNavigator: true, // encima de la barra inferior de las pestañas
     isScrollControlled: true,
     useSafeArea: true,
     showDragHandle: false,

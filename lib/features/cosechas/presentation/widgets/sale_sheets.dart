@@ -16,6 +16,7 @@ const _mercados = ['Lima', 'Arequipa', 'Santa Anita', 'Río Seco'];
 Future<SaleMode?> showSaleModePicker(BuildContext context) {
   return showModalBottomSheet<SaleMode>(
     context: context,
+    useRootNavigator: true, // encima de la barra inferior de las pestañas
     // Las tres tarjetas superan la altura por defecto de la hoja (9/16 de pantalla).
     isScrollControlled: true,
     builder: (ctx) {

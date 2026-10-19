@@ -136,6 +136,7 @@ class _InicioScreenState extends ConsumerState<InicioScreen> {
     final campanas = ref.read(campanaListProvider).campanas;
     showModalBottomSheet<void>(
       context: context,
+      useRootNavigator: true, // encima de la barra inferior de las pestañas
       builder: (ctx) => ListView(
         shrinkWrap: true,
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
@@ -187,6 +188,7 @@ class _InicioScreenState extends ConsumerState<InicioScreen> {
   void _showMoreActions(Campana campana) {
     showModalBottomSheet<void>(
       context: context,
+      useRootNavigator: true, // encima de la barra inferior de las pestañas
       builder: (ctx) {
         Widget action(IconData icon, String label, VoidCallback onTap, {Color? color}) => ListTile(
               leading: Icon(icon, color: color ?? AppColors.accent),

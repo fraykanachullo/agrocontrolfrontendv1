@@ -18,8 +18,8 @@ class AgroBackground extends StatelessWidget {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 gradient: RadialGradient(
-                  center: const Alignment(0.7, -0.7),
-                  radius: 1.1,
+                  center: const Alignment(0.75, -0.8),
+                  radius: 1.3,
                   colors: [p.glowA, p.glowA.withValues(alpha: 0)],
                 ),
               ),
@@ -36,6 +36,19 @@ class AgroBackground extends StatelessWidget {
               ),
             ),
           ),
+          // Modo oscuro: viñeteado abajo para dar profundidad.
+          if (p.isDark)
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.center,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.black.withValues(alpha: 0), Colors.black.withValues(alpha: 0.45)],
+                  ),
+                ),
+              ),
+            ),
           child,
         ],
       ),
