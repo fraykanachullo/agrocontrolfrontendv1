@@ -223,13 +223,16 @@ class CampanaLocalDatasource {
   // ── Gastos por Categoría ──
 
   /// Gastos, ingresos y cosechas de todas las campañas en una sola consulta.
+  /// Los ingresos solo cuentan lo ya cobrado; lo que deben va aparte.
   Future<List<Map<String, dynamic>>> getResumenCampanas() async {
     final db = await AppDatabase.database;
     return await db.rawQuery('''
       SELECT c.id AS campana_id,
         COALESCE((SELECT SUM(monto) FROM transacciones t WHERE t.campana_id = c.id AND t.tipo = 'gasto'), 0) AS gastos,
-        COALESCE((SELECT SUM(monto) FROM transacciones t WHERE t.campana_id = c.id AND t.tipo = 'ingreso'), 0) AS ingresos_directos,
-        COALESCE((SELECT SUM(monto_neto_final) FROM cosechas k WHERE k.campana_id = c.id AND k.estado = 'entregado'), 0) AS ventas,
+        COALESCE((SELECT SUM(monto) FROM transacciones t WHERE t.campana_id = c.id AND t.tipo = 'ingreso' AND $_cobrado), 0) AS ingresos_directos,
+        COALESCE((SELECT SUM(monto_neto_final) FROM cosechas k WHERE k.campana_id = c.id AND $_ventaCobrada), 0) AS ventas,
+        COALESCE((SELECT SUM(monto) FROM transacciones t WHERE t.campana_id = c.id AND t.tipo = 'ingreso' AND NOT $_cobrado), 0)
+          + COALESCE((SELECT SUM(monto_neto_final) FROM cosechas k WHERE k.campana_id = c.id AND $_ventaPorCobrar), 0) AS por_cobrar,
         (SELECT COUNT(*) FROM cosechas k WHERE k.campana_id = c.id) AS cosechas,
         (SELECT COUNT(*) FROM cosechas k WHERE k.campana_id = c.id AND k.estado = 'pendiente') AS por_liquidar
       FROM campanas c
@@ -257,6 +260,20 @@ class CampanaLocalDatasource {
   }
 
   // ── Dashboard Aggregates ──
+  //
+  // Regla: un ingreso solo suma al balance cuando ya se cobró. Lo que deben
+  // (ingreso fiado o despacho liquidado sin cobrar) se muestra aparte como
+  // "te deben" para que el agricultor lo revise.
+
+  static const _cobrado = "COALESCE(estado_pago, '') != 'por_cobrar'";
+  static const _ventaCobrada = "estado = 'entregado' AND fecha_cobro IS NOT NULL";
+  static const _ventaPorCobrar = "estado = 'entregado' AND fecha_cobro IS NULL";
+
+  /// Ya me pagaron (ingreso fiado) o ya pagué (gasto fiado).
+  Future<void> marcarPagado(int transaccionId) async {
+    final db = await AppDatabase.database;
+    await db.update('transacciones', {'estado_pago': 'pagado'}, where: 'id = ?', whereArgs: [transaccionId]);
+  }
 
   Future<Map<String, dynamic>> getDashboardData(int campanaId) async {
     final db = await AppDatabase.database;
@@ -266,8 +283,8 @@ class CampanaLocalDatasource {
       [campanaId, 'gasto'],
     );
     final ingresos = await db.rawQuery(
-      'SELECT COALESCE(SUM(monto), 0) as total FROM transacciones WHERE campana_id = ? AND tipo = ?',
-      [campanaId, 'ingreso'],
+      "SELECT COALESCE(SUM(monto), 0) as total FROM transacciones WHERE campana_id = ? AND tipo = 'ingreso' AND $_cobrado",
+      [campanaId],
     );
     final actividades = await db.rawQuery(
       'SELECT COUNT(*) as total FROM actividades WHERE campana_id = ?',
@@ -283,7 +300,7 @@ class CampanaLocalDatasource {
     );
     // Fiado en ambos sentidos: ingresos que aún no se cobran y gastos que se deben.
     final porCobrar = await db.rawQuery(
-      "SELECT COALESCE(SUM(monto), 0) as total FROM transacciones WHERE campana_id = ? AND tipo = 'ingreso' AND estado_pago = 'por_cobrar'",
+      "SELECT COALESCE(SUM(monto), 0) as total, COUNT(*) as cantidad FROM transacciones WHERE campana_id = ? AND tipo = 'ingreso' AND NOT $_cobrado",
       [campanaId],
     );
     final porPagar = await db.rawQuery(
@@ -291,8 +308,12 @@ class CampanaLocalDatasource {
       [campanaId],
     );
     final cosechasLiquidadas = await db.rawQuery(
-      "SELECT COALESCE(SUM(monto_neto_final), 0) as total FROM cosechas WHERE campana_id = ? AND estado = ?",
-      [campanaId, 'entregado'],
+      'SELECT COALESCE(SUM(monto_neto_final), 0) as total FROM cosechas WHERE campana_id = ? AND $_ventaCobrada',
+      [campanaId],
+    );
+    final ventasPorCobrar = await db.rawQuery(
+      'SELECT COALESCE(SUM(monto_neto_final), 0) as total, COUNT(*) as cantidad FROM cosechas WHERE campana_id = ? AND $_ventaPorCobrar',
+      [campanaId],
     );
 
     return {
@@ -304,6 +325,9 @@ class CampanaLocalDatasource {
       'cosechas_entregadas': (cosechasEntregadas.first['total'] as int),
       'ingresos_ventas': (cosechasLiquidadas.first['total'] as num).toDouble(),
       'ingresos_por_cobrar': (porCobrar.first['total'] as num).toDouble(),
+      'ingresos_por_cobrar_cantidad': porCobrar.first['cantidad'] as int,
+      'ventas_por_cobrar': (ventasPorCobrar.first['total'] as num).toDouble(),
+      'ventas_por_cobrar_cantidad': ventasPorCobrar.first['cantidad'] as int,
       'gastos_por_pagar': (porPagar.first['total'] as num).toDouble(),
     };
   }
