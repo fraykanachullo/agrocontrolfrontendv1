@@ -32,6 +32,9 @@ abstract final class AppColors {
   static Color get warning => _p.warning;
   static Color get info => _p.info;
   static Color get track => _p.track;
+  static Color get chartIngreso => _p.chartIngreso;
+  static Color get chartGasto => _p.chartGasto;
+  static Color get chartGanancia => _p.chartGanancia;
   static LinearGradient get ctaGradient => _p.cta;
   static LinearGradient get progressGradient => _p.progress;
 
