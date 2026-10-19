@@ -169,8 +169,8 @@ abstract final class AppTheme {
         checkmarkColor: onAccent,
       ),
       bottomSheetTheme: BottomSheetThemeData(
-        backgroundColor: p.background,
-        modalBackgroundColor: p.background,
+        backgroundColor: p.sheet,
+        modalBackgroundColor: p.sheet,
         surfaceTintColor: Colors.transparent,
         showDragHandle: true,
         dragHandleColor: colorScheme.outlineVariant,

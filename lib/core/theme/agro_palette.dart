@@ -43,6 +43,10 @@ class AgroPalette {
   final Color track;
   final Color navBackground;
 
+  /// Fondo de los formularios y hojas inferiores: en oscuro, un verde algo
+  /// más claro que el fondo para que no canse la vista.
+  final Color sheet;
+
   const AgroPalette({
     required this.scheme,
     required this.background,
@@ -68,6 +72,7 @@ class AgroPalette {
     required this.info,
     required this.track,
     required this.navBackground,
+    required this.sheet,
   });
 
   Brightness get brightness => scheme.brightness;
@@ -85,7 +90,7 @@ class AgroPalette {
       primaryFixed: Color(0xFF4EFEB3),
       primaryFixedDim: Color(0xFF20E3B2),
       onPrimaryFixed: Color(0xFF04120D),
-      onPrimaryFixedVariant: Color(0xFF0B1411),
+      onPrimaryFixedVariant: Color(0xFF010A06),
       secondary: Color(0xFFFBBF24),
       onSecondary: Color(0xFF04120D),
       secondaryContainer: Color(0xFF3A2E0B),
@@ -106,41 +111,43 @@ class AgroPalette {
       onError: Color(0xFF04120D),
       errorContainer: Color(0xFF3B1219),
       onErrorContainer: Color(0xFFFDA4AF),
-      // Fondo (60 %): verde bosque casi negro y desaturado.
-      surface: Color(0xFF0B1411),
+      // Fondo (60 %): casi negro con un toque de verde oscuro.
+      surface: Color(0xFF010A06),
       // Texto: blanco suave para cifras y títulos; gris menta para lo secundario.
       onSurface: Color(0xFFF2F5F3),
       onSurfaceVariant: Color(0xFFA3B8AE),
-      surfaceDim: Color(0xFF08100D),
-      surfaceBright: Color(0xFF2F3D35),
-      // Tarjetas y paneles (30 %): oliva oscuro grisáceo.
-      surfaceContainerLowest: Color(0xFF121A16),
-      surfaceContainerLow: Color(0xFF18221D),
-      surfaceContainer: Color(0xFF1C2721),
-      surfaceContainerHigh: Color(0xFF222E28),
-      surfaceContainerHighest: Color(0xFF2A3730),
+      surfaceDim: Color(0xFF000604),
+      surfaceBright: Color(0xFF24392F),
+      // Tarjetas y paneles (30 %): verde oliva profundo, un tono sobre el fondo.
+      surfaceContainerLowest: Color(0xFF05140E),
+      surfaceContainerLow: Color(0xFF091B14),
+      surfaceContainer: Color(0xFF0D1F17),
+      surfaceContainerHigh: Color(0xFF192E25),
+      surfaceContainerHighest: Color(0xFF20362C),
       outline: Color(0xFF74887E),
-      outlineVariant: Color(0xFF2C3A33),
+      outlineVariant: Color(0xFF1E352B),
       inverseSurface: Color(0xFFE6F4EF),
       onInverseSurface: Color(0xFF04120D),
       inversePrimary: Color(0xFF0D631B),
       surfaceTint: Colors.transparent,
     ),
-    background: Color(0xFF0B1411),
-    glowA: Color(0x1420E3B2),
-    glowB: Color(0x661C2A22),
-    cardTop: Color(0xFF1E2A23),
-    cardBottom: Color(0xFF161F1A),
+    background: Color(0xFF010A06),
+    // Brillo esmeralda arriba a la derecha y bruma verde a la izquierda:
+    // dan profundidad sin aclarar el fondo.
+    glowA: Color(0x4014B886),
+    glowB: Color(0x99082A1E),
+    cardTop: Color(0xFF0F2018),
+    cardBottom: Color(0xFF07150F),
     cardBorder: Color(0x14FFFFFF),
     cardBorderStrong: Color(0x3320E3B2),
     cardShadow: Colors.transparent,
     highlightShadow: Color(0x99000000),
-    buttonTop: Color(0xFF26332C),
-    buttonBottom: Color(0xFF1C2721),
+    buttonTop: Color(0xFF1C3229),
+    buttonBottom: Color(0xFF13271F),
     cta: LinearGradient(colors: [Color(0xFF20E3B2), Color(0xFF4EFEB3)]),
     ctaGlow: Color(0x5520E3B2),
     progress: LinearGradient(colors: [Color(0xFFDDF33B), Color(0xFF8FE35A)]),
-    accentSoft: Color(0xFF18221D),
+    accentSoft: Color(0xFF12291F),
     live: Color(0xFF38EF7D),
     textSubtle: Color(0xFF74887E),
     positive: Color(0xFF4EFEB3),
@@ -148,7 +155,8 @@ class AgroPalette {
     warning: Color(0xFFFBBF24),
     info: Color(0xFF7DD3FC),
     track: Color(0x66000000),
-    navBackground: Color(0xE6111A16),
+    navBackground: Color(0xE6081610),
+    sheet: Color(0xFF13241C),
   );
 
   /// "Botánico": salvia clara con verdes de hoja profundos.
@@ -223,5 +231,6 @@ class AgroPalette {
     info: Color(0xFF2563EB),
     track: Color(0xFFDEE8DE),
     navBackground: Color(0xD1FFFFFF),
+    sheet: Color(0xFFF2F6F2),
   );
 }
