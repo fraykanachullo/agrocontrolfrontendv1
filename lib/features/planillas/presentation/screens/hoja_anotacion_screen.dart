@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -5,7 +6,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:uuid/uuid.dart';
 import '../../../../core/providers/app_providers.dart';
 import '../../../../core/theme/app_colors.dart';
@@ -15,6 +15,7 @@ import '../../../../core/widgets/glass.dart';
 import '../../../cuaderno/data/datasources/evidencia_local_datasource.dart';
 import '../../domain/entities/planilla.dart';
 import '../../domain/entities/plantilla_cultivo.dart';
+import 'compartir_hoja_screen.dart';
 
 const _mercadosSugeridos = ['Lima', 'Arequipa', 'Santa Anita', 'Río Seco'];
 
@@ -42,7 +43,7 @@ class HojaAnotacionScreen extends ConsumerStatefulWidget {
   ConsumerState<HojaAnotacionScreen> createState() => _HojaAnotacionScreenState();
 }
 
-class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
+class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> with WidgetsBindingObserver {
   late List<Calidad> _calidades;
   late List<List<int>> _celdas; // [fila][calidad]
   final List<(List<Calidad>, List<List<int>>)> _historial = [];
@@ -60,12 +61,34 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
   bool _dirty = false;
   bool _saving = false;
 
-  bool get _enviada => widget.planilla?.estado == 'enviada';
+  /// Lo último guardado en el teléfono (null hasta el primer guardado).
+  Planilla? _guardada;
+  Timer? _autoguardado;
+  Future<void>? _guardando;
+  DateTime? _guardadoEn;
+
+  /// Hoja nueva: de qué hoja se copiaron los datos del camión (null si no).
+  String? _copiadoDe;
+
+  /// El despacho ya se liquidó: la hoja queda como registro, sin editar.
+  bool _liquidada = false;
+  bool _pantallaCompleta = false;
+
+  bool get _enviada => _guardada?.estado == 'enviada';
+
+  /// Kilos estimados con el peso por envase de la plantilla (null si no está configurado).
+  String? _kilos(int envases) {
+    final peso = widget.plantilla.pesoEnvaseKg;
+    return peso == null ? null : '≈ ${NumberFormat('#,##0', 'es_419').format(envases * peso)} kg';
+  }
+  int? get _despachoId => _guardada?.payload['despacho_id'] as int?;
   String get _envase => widget.plantilla.envase;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _guardada = widget.planilla;
     final p = widget.planilla;
     final payload = p?.payload ?? const <String, dynamic>{};
 
@@ -88,6 +111,64 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
       _notas = p.notas ?? '';
       _foto = payload['foto'] as String?;
     }
+    _verSiSeLiquido();
+    if (p == null) _copiarCamionAnterior();
+  }
+
+  /// En un día salen varios camiones: la hoja nueva trae destino, chofer,
+  /// placa y comisionista de la última hoja de la campaña. No se guarda hasta
+  /// que se anote algo, así no quedan hojas vacías.
+  Future<void> _copiarCamionAnterior() async {
+    final filas = await ref.read(planillaLocalDatasourceProvider).listPlanillas(widget.campanaId);
+    for (final m in filas) {
+      final ultima = Planilla.fromMap(m);
+      final datos = (
+        destino: ultima.mercado ?? '',
+        chofer: ultima.transportista ?? '',
+        placa: ultima.payload['placa'] as String? ?? '',
+        comisionista: ultima.payload['comisionista'] as String? ?? '',
+      );
+      if ([datos.destino, datos.chofer, datos.placa, datos.comisionista].every((v) => v.isEmpty)) continue;
+      if (!mounted || _guardada != null) return;
+      setState(() {
+        _destino = datos.destino;
+        _chofer = datos.chofer;
+        _placa = datos.placa;
+        _comisionista = datos.comisionista;
+        _copiadoDe = 'Hoja N.º ${ultima.payload['numero_hoja'] ?? '?'}';
+      });
+      return;
+    }
+  }
+
+  void _borrarCopiados() {
+    setState(() {
+      _destino = _chofer = _placa = _comisionista = '';
+      _copiadoDe = null;
+    });
+    if (_guardada != null) _marcar();
+  }
+
+  @override
+  void dispose() {
+    _autoguardado?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    if (_pantallaCompleta) SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    super.dispose();
+  }
+
+  /// Si la app pasa a segundo plano (llamada, pantalla apagada, cierre), se
+  /// guarda al instante: no se pierde nada de lo anotado.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) _guardarYa();
+  }
+
+  Future<void> _verSiSeLiquido() async {
+    final id = _despachoId;
+    if (id == null) return;
+    final despacho = (await ref.read(campanaLocalDatasourceProvider).listCosechas(widget.campanaId)).where((c) => c['id'] == id).firstOrNull;
+    if (mounted && despacho != null && despacho['estado'] != 'pendiente') setState(() => _liquidada = true);
   }
 
   // ── Cálculos ──
@@ -101,7 +182,14 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
   void _snapshot() {
     _historial.add((List.of(_calidades), [for (final f in _celdas) List.of(f)]));
     if (_historial.length > 50) _historial.removeAt(0);
+    _marcar();
+  }
+
+  /// Hubo un cambio: se guarda solo, un momento después del último toque.
+  void _marcar() {
     _dirty = true;
+    _autoguardado?.cancel();
+    _autoguardado = Timer(const Duration(milliseconds: 800), _guardarYa);
   }
 
   void _deshacer() {
@@ -112,10 +200,11 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
       _celdas = celdas;
       _sel = null;
     });
+    _marcar();
   }
 
   void _seleccionar(int fila, int col) {
-    if (_enviada) return;
+    if (_liquidada) return;
     HapticFeedback.selectionClick();
     setState(() {
       _sel = (fila, col);
@@ -171,7 +260,7 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
   }
 
   Future<void> _opcionesFila(int f) async {
-    if (_enviada) return;
+    if (_liquidada) return;
     final borrar = await showModalBottomSheet<bool>(
       context: context,
       builder: (ctx) => SafeArea(
@@ -210,7 +299,7 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
 
   /// Toque largo sobre una columna: renombrar, mover o quitar la calidad.
   Future<void> _opcionesCalidad(int c) async {
-    if (_enviada) return;
+    if (_liquidada) return;
     final calidad = _calidades[c];
     final accion = await showModalBottomSheet<String>(
       context: context,
@@ -292,10 +381,8 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
       maxLines: 6,
     );
     if (valor == null) return;
-    setState(() {
-      _notas = valor;
-      _dirty = true;
-    });
+    setState(() => _notas = valor);
+    _marcar();
   }
 
   Future<void> _editarDato(String titulo, String actual, ValueChanged<String> onSave, {List<String> sugerencias = const []}) async {
@@ -307,28 +394,24 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
       suggestions: sugerencias,
     );
     if (valor == null) return;
-    setState(() {
-      onSave(valor);
-      _dirty = true;
-    });
+    setState(() => onSave(valor));
+    _marcar();
   }
 
   Future<void> _tomarFoto() async {
     final picked = await ImagePicker().pickImage(source: ImageSource.camera, imageQuality: 75, maxWidth: 1600);
     if (picked == null) return;
     final saved = await EvidenciaLocalDatasource().copyToEvidencias(picked.path);
-    setState(() {
-      _foto = saved.path;
-      _dirty = true;
-    });
+    setState(() => _foto = saved.path);
+    _marcar();
   }
 
   // ── Guardado ──
 
   Map<String, dynamic> _payload({int? despachoId}) => {
     // Enlace al despacho creado al cerrar la hoja (para su pantalla de detalle).
-    'despacho_id': ?(despachoId ?? widget.planilla?.payload['despacho_id'] as int?),
-    'numero_hoja': widget.planilla?.payload['numero_hoja'] ?? widget.numeroHoja,
+    'despacho_id': ?(despachoId ?? _despachoId),
+    'numero_hoja': _guardada?.payload['numero_hoja'] ?? widget.numeroHoja,
     'placa': _placa.toUpperCase(),
     'comisionista': _comisionista,
     'envase': widget.plantilla.envase,
@@ -348,9 +431,20 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
     'gran_total': _total,
   };
 
+  bool get _tieneContenido =>
+      _total > 0 || [_destino, _chofer, _placa, _comisionista, _notas].any((v) => v.isNotEmpty) || _foto != null;
+
+  /// Guarda ahora lo pendiente (sin esperar el temporizador).
+  Future<void> _guardarYa() async {
+    _autoguardado?.cancel();
+    if (!_dirty || _liquidada || (!_tieneContenido && _guardada == null)) return;
+    await (_guardando ??= _persistir().whenComplete(() => _guardando = null));
+  }
+
   Future<void> _persistir({String? estado, int? despachoId}) async {
+    _autoguardado?.cancel();
     final now = DateTime.now().toIso8601String();
-    final existing = widget.planilla;
+    final existing = _guardada;
     final planilla = Planilla(
       id: existing?.id,
       uuidLocal: existing?.uuidLocal ?? const Uuid().v4(),
@@ -367,55 +461,92 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     );
+    // La foto del estado se tomó arriba: lo que cambie mientras se escribe
+    // en la base vuelve a marcar la hoja y se guarda en la siguiente vuelta.
+    _dirty = false;
     final notifier = ref.read(planillasProvider.notifier);
     if (existing?.id != null) {
       await notifier.updatePlanilla(planilla);
+      _guardada = planilla;
     } else {
-      await notifier.addPlanilla(planilla);
+      _guardada = await notifier.addPlanilla(planilla);
     }
-    _dirty = false;
+    // Hoja ya enviada: el despacho sigue a la hoja mientras no se liquide.
+    if (estado == null && _enviada && _despachoId != null) {
+      final ok = await ref.read(cosechasProvider.notifier).actualizarDespachoDesdeHoja(
+            widget.campanaId,
+            _despachoId!,
+            total: _total,
+            conductor: _conductor,
+            mercadoDestino: _destino,
+            detalles: _detallesDespacho(),
+          );
+      if (!ok) _liquidada = true;
+    }
+    if (mounted) setState(() => _guardadoEn = DateTime.now());
   }
 
   Future<bool> _salir() async {
-    if (_dirty && !_enviada && _total > 0) await _persistir();
+    await _guardarYa();
     return true;
   }
 
-  /// Cierra la hoja: crea el despacho "por liquidar" con el detalle por
-  /// fila y calidad (RF-COS-10) y deja la hoja como enviada.
+  String get _conductor => [_chofer, if (_placa.isNotEmpty) _placa.toUpperCase()].where((s) => s.isNotEmpty).join(' · ');
+
+  /// Una fila por celda con javas, por columna y luego por fila: así las
+  /// calidades conservan su orden en el despacho.
+  List<Map<String, dynamic>> _detallesDespacho() => [
+        for (var c = 0; c < _calidades.length; c++)
+          for (var f = 0; f < _celdas.length; f++)
+            if (_celdas[f][c] > 0)
+              {'categoria': _calidades[c].nombre, 'simbolo': _calidades[c].codigo, 'posicion_fila': f + 1, 'cantidad_bultos': _celdas[f][c]},
+      ];
+
+  /// Cierra la hoja: revisa el resumen, crea el despacho "por liquidar" con
+  /// el detalle por fila y calidad (RF-COS-10) y deja la hoja como enviada.
+  /// Después se puede seguir corrigiendo hasta que llegue la liquidación.
   Future<void> _cerrarYEnviar() async {
+    setState(() => _sel = null);
     if (_total == 0) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('La hoja está vacía')));
       return;
     }
-    if (_destino.isEmpty) {
-      await _editarDato('¿A qué mercado va?', _destino, (v) => _destino = v, sugerencias: _mercadosSugeridos);
-      if (_destino.isEmpty) return;
-    }
-    if (!mounted) return;
-
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Cerrar hoja y enviar'),
-        content: Text(
-          '$_total ${_envase}s a $_destino.\n\n'
-          '${[for (var c = 0; c < _calidades.length; c++)
-            if (_totalCol(c) > 0) '${_calidades[c].codigo}: ${_totalCol(c)}'].join(' · ')}\n\n'
-          'Se creará el despacho como "por liquidar".',
+    while (true) {
+      final accion = await showModalBottomSheet<String>(
+        context: context,
+        isScrollControlled: true,
+        builder: (_) => _ResumenEnvio(
+          total: _total,
+          kilos: _kilos(_total),
+          envase: _envase,
+          filas: [for (var f = 0; f < _celdas.length; f++) if (_totalFila(f) > 0) f].length,
+          calidades: [for (var c = 0; c < _calidades.length; c++) (_calidades[c], _totalCol(c))],
+          destino: _destino,
+          chofer: _chofer,
+          placa: _placa.toUpperCase(),
+          comisionista: _comisionista,
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Revisar')),
-          TextButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Enviar')),
-        ],
-      ),
-    );
-    if (ok != true || !mounted) return;
+      );
+      if (!mounted || accion == null || accion == 'revisar') return;
+      if (accion == 'enviar') break;
+      // Editar un dato desde el resumen y volver a mostrarlo.
+      switch (accion) {
+        case 'destino':
+          await _editarDato('¿A qué mercado va?', _destino, (v) => _destino = v, sugerencias: _mercadosSugeridos);
+        case 'chofer':
+          await _editarDato('Chofer', _chofer, (v) => _chofer = v);
+        case 'placa':
+          await _editarDato('Placa del camión', _placa, (v) => _placa = v);
+        case 'comisionista':
+          await _editarDato('Comisionista', _comisionista, (v) => _comisionista = v);
+      }
+      if (!mounted) return;
+    }
 
     setState(() => _saving = true);
     final messenger = ScaffoldMessenger.of(context);
-    final navigator = Navigator.of(context);
     try {
+      await _guardarYa();
       final despachoId = await ref
           .read(cosechasProvider.notifier)
           .addCosecha(
@@ -427,29 +558,56 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
             unidadEmpaque: widget.plantilla.envase,
             cantidadUnidades: _total,
             totalBultos: _total,
-            conductor: [_chofer, if (_placa.isNotEmpty) _placa.toUpperCase()].where((s) => s.isNotEmpty).join(' · '),
+            conductor: _conductor,
             mercadoDestino: _destino,
             fechaEnvio: DateTime(_fecha.year, _fecha.month, _fecha.day, DateTime.now().hour, DateTime.now().minute).toIso8601String(),
-            // Por columna y luego por fila: así las calidades conservan su orden.
-            detalles: [
-              for (var c = 0; c < _calidades.length; c++)
-                for (var f = 0; f < _celdas.length; f++)
-                  if (_celdas[f][c] > 0)
-                    {'categoria': _calidades[c].nombre, 'simbolo': _calidades[c].codigo, 'posicion_fila': f + 1, 'cantidad_bultos': _celdas[f][c]},
-            ],
+            detalles: _detallesDespacho(),
           );
       await _persistir(estado: 'enviada', despachoId: despachoId);
       ref.read(dashboardRefreshTrigger.notifier).update((s) => s + 1);
       HapticFeedback.mediumImpact();
-      navigator.pop(true);
-      messenger.showSnackBar(SnackBar(content: Text('Despacho de $_total ${_envase}s a $_destino registrado')));
+      if (!mounted) return;
+      setState(() => _saving = false);
+      final compartir = await showModalBottomSheet<bool>(
+        context: context,
+        builder: (_) => _EnvioListo(total: _total, kilos: _kilos(_total), envase: _envase, destino: _destino),
+      );
+      if (compartir == true) await _abrirCompartir();
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text('Error: $e')));
       if (mounted) setState(() => _saving = false);
     }
   }
 
-  Future<void> _compartir() {
+  /// Vista previa de la hoja con diseño, para compartirla como imagen o PDF.
+  Future<void> _abrirCompartir() async {
+    await _guardarYa();
+    if (!mounted) return;
+    final campana = ref.read(campanaListProvider).campanas.where((c) => c.id == widget.campanaId).firstOrNull;
+    final hoja = HojaEmbarque(
+      numero: (_guardada?.payload['numero_hoja'] as int?) ?? widget.numeroHoja,
+      cultivo: widget.cultivo,
+      campana: campana?.nombre.replaceFirst(RegExp(r'^Campaña de\s+', caseSensitive: false), '') ?? '',
+      fecha: _fecha,
+      destino: _destino,
+      chofer: _chofer,
+      placa: _placa.toUpperCase(),
+      comisionista: _comisionista,
+      envase: _envase,
+      notas: _notas,
+      anotadoPor: ref.read(authProvider).user?.nombreCompleto ?? '',
+      pesoEnvaseKg: widget.plantilla.pesoEnvaseKg,
+      estado: _liquidada ? 'Liquidada' : (_enviada ? 'Enviada' : 'Borrador'),
+      calidades: List.of(_calidades),
+      celdas: [for (final f in _celdas) List.of(f)],
+    );
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => CompartirHojaScreen(hoja: hoja, textoPlano: _textoPlano())),
+    );
+  }
+
+  /// La hoja en texto para WhatsApp (tabla en bloque de código).
+  String _textoPlano() {
     String pad(Object v, int w) => '$v'.padLeft(w);
     final cols = _calidades.map((c) => pad(c.codigo, 3)).join(' ');
     final b = StringBuffer()
@@ -472,7 +630,18 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
       ..writeln('Tot. ${[for (var c = 0; c < _calidades.length; c++) pad(_totalCol(c), 3)].join(' ')} ${pad(_total, 4)}')
       ..writeln('```')
       ..write('*Total: $_total ${_envase}s*');
-    return SharePlus.instance.share(ShareParams(text: b.toString()));
+    return b.toString();
+  }
+
+  // ── Pantalla completa ──
+
+  /// Solo la matriz y el teclado, de borde a borde, sin barras del sistema:
+  /// para anotar en la cosecha sin distracciones.
+  Future<void> _alternarPantallaCompleta() async {
+    final activar = !_pantallaCompleta;
+    await SystemChrome.setEnabledSystemUIMode(activar ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge);
+    HapticFeedback.selectionClick();
+    if (mounted) setState(() => _pantallaCompleta = activar);
   }
 
   // ── UI ──
@@ -483,10 +652,12 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
       canPop: false,
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
+        // Atrás en pantalla completa solo sale de ella.
+        if (_pantallaCompleta) return _alternarPantallaCompleta();
         final navigator = Navigator.of(context);
         if (await _salir()) navigator.pop(true);
       },
-      child: AgroBackground(
+      child: _pantallaCompleta ? _vistaCompleta() : AgroBackground(
         child: Scaffold(
           backgroundColor: Colors.transparent,
           appBar: _appBar(),
@@ -499,7 +670,7 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
                 _contexto(),
                 if (_enviada) ...[const SizedBox(height: 12), _avisoEnviada()],
                 const SizedBox(height: 14),
-                if (!_enviada) _barraAcciones(),
+                if (!_liquidada) _barraAcciones(),
                 const SizedBox(height: 10),
                 _matriz(),
                 const SizedBox(height: 14),
@@ -521,7 +692,7 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
   PreferredSizeWidget _appBar() {
     final text = Theme.of(context).textTheme;
     return PreferredSize(
-      preferredSize: const Size.fromHeight(68),
+      preferredSize: const Size.fromHeight(80),
       child: SafeArea(
         bottom: false,
         child: Padding(
@@ -537,24 +708,11 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
                   children: [
                     Text('Hoja de anotación', style: text.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
                     Text('Hoja N.º ${widget.numeroHoja} · ${widget.cultivo}', style: text.bodySmall),
+                    _estadoGuardado(),
                   ],
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(color: AppColors.accent.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(999)),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.local_shipping_rounded, size: 14, color: AppColors.accent),
-                    const SizedBox(width: 5),
-                    Text(
-                      '${_celdas.length} filas',
-                      style: text.labelSmall?.copyWith(color: AppColors.accent, fontWeight: FontWeight.w700),
-                    ),
-                  ],
-                ),
-              ),
+              GlassCircleButton(icon: Icons.fullscreen_rounded, tooltip: 'Pantalla completa', onPressed: _alternarPantallaCompleta),
             ],
           ),
         ),
@@ -578,11 +736,14 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
           ),
           const SizedBox(height: 4),
           InkWell(
-            onTap: _enviada
+            onTap: _liquidada
                 ? null
                 : () async {
                     final d = await showDatePicker(context: context, initialDate: _fecha, firstDate: DateTime(2020), lastDate: DateTime.now());
-                    if (d != null) setState(() => _fecha = d);
+                    if (d != null) {
+                      setState(() => _fecha = d);
+                      _marcar();
+                    }
                   },
             child: Text('$fecha${_destino.isEmpty ? '' : ' · a $_destino'}', style: text.titleLarge),
           ),
@@ -594,7 +755,7 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
                   icon: Icons.storefront_outlined,
                   label: 'Destino',
                   value: _destino,
-                  onTap: _enviada ? null : () => _editarDato('Mercado de destino', _destino, (v) => _destino = v, sugerencias: _mercadosSugeridos),
+                  onTap: _liquidada ? null : () => _editarDato('Mercado de destino', _destino, (v) => _destino = v, sugerencias: _mercadosSugeridos),
                 ),
               ),
               const SizedBox(width: 8),
@@ -603,7 +764,7 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
                   icon: Icons.handshake_outlined,
                   label: 'Comisionista',
                   value: _comisionista,
-                  onTap: _enviada ? null : () => _editarDato('Comisionista', _comisionista, (v) => _comisionista = v),
+                  onTap: _liquidada ? null : () => _editarDato('Comisionista', _comisionista, (v) => _comisionista = v),
                 ),
               ),
             ],
@@ -616,7 +777,7 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
                   icon: Icons.badge_outlined,
                   label: 'Chofer',
                   value: _chofer,
-                  onTap: _enviada ? null : () => _editarDato('Chofer', _chofer, (v) => _chofer = v),
+                  onTap: _liquidada ? null : () => _editarDato('Chofer', _chofer, (v) => _chofer = v),
                 ),
               ),
               const SizedBox(width: 8),
@@ -625,14 +786,148 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
                   icon: Icons.pin_outlined,
                   label: 'Placa',
                   value: _placa.toUpperCase(),
-                  onTap: _enviada ? null : () => _editarDato('Placa del camión', _placa, (v) => _placa = v),
+                  onTap: _liquidada ? null : () => _editarDato('Placa del camión', _placa, (v) => _placa = v),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 8),
-          _Dato(icon: Icons.sticky_note_2_outlined, label: 'Notas', value: _notas, onTap: _enviada ? null : _editarNotas),
+          _Dato(icon: Icons.sticky_note_2_outlined, label: 'Notas', value: _notas, onTap: _liquidada ? null : _editarNotas),
+          if (_copiadoDe != null) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(Icons.content_copy_rounded, size: 14, color: AppColors.textSubtle),
+                const SizedBox(width: 6),
+                Expanded(child: Text('Datos del camión copiados de la $_copiadoDe', style: text.labelSmall)),
+                TextButton(onPressed: _borrarCopiados, child: const Text('Borrar')),
+              ],
+            ),
+          ],
         ],
+      ),
+    );
+  }
+
+  /// "Guardado ✓" para que el anotador sepa que nada se pierde.
+  Widget _estadoGuardado() {
+    final text = Theme.of(context).textTheme.labelSmall;
+    final (icono, mensaje, color) = _liquidada
+        ? (Icons.lock_outline_rounded, 'Liquidada · solo lectura', AppColors.textSubtle)
+        : _dirty
+            ? (Icons.sync_rounded, 'Guardando…', AppColors.textSubtle)
+            : _guardadoEn != null || _guardada != null
+                ? (Icons.check_circle_rounded, 'Guardado en el teléfono', AppColors.accent)
+                : (Icons.edit_note_rounded, 'Se guarda sola mientras anotas', AppColors.textSubtle);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icono, size: 12, color: color),
+        const SizedBox(width: 4),
+        Flexible(child: Text(mensaje, maxLines: 1, overflow: TextOverflow.ellipsis, style: text?.copyWith(color: color, fontSize: 10.5))),
+      ],
+    );
+  }
+
+  /// Pantalla completa: barra mínima, matriz grande y teclado.
+  Widget _vistaCompleta() {
+    final text = Theme.of(context).textTheme;
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        bottom: false,
+        child: GestureDetector(
+          onTap: () => setState(() => _sel = null),
+          behavior: HitTestBehavior.translucent,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text('Hoja N.º ${widget.numeroHoja} · ${widget.cultivo}', style: text.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
+                          _estadoGuardado(),
+                        ],
+                      ),
+                    ),
+                    Text.rich(
+                      TextSpan(
+                        children: [
+                          TextSpan(text: '$_total', style: AppTheme.display(fontSize: 24, color: AppColors.accent)),
+                          TextSpan(text: ' ${_envase}s', style: text.labelMedium),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    if (!_liquidada) ...[
+                      IconButton(onPressed: _historial.isEmpty ? null : _deshacer, icon: const Icon(Icons.undo_rounded), tooltip: 'Deshacer'),
+                      IconButton(onPressed: _agregarFila, icon: const Icon(Icons.add_rounded), tooltip: 'Agregar fila'),
+                    ],
+                    IconButton(onPressed: _alternarPantallaCompleta, icon: const Icon(Icons.fullscreen_exit_rounded), tooltip: 'Salir de pantalla completa'),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(6, 0, 6, 12),
+                  children: [_matriz(grande: true)],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      bottomNavigationBar: _sel != null ? _teclado() : _totalesCompactos(),
+    );
+  }
+
+  /// Totales por calidad en una línea (pantalla completa, sin teclado abierto).
+  Widget _totalesCompactos() {
+    final text = Theme.of(context).textTheme;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+      decoration: BoxDecoration(
+        color: AppColors.palette.navBackground,
+        border: Border(top: BorderSide(color: AppColors.cardBorder)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 30,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            children: [
+              if (_kilos(_total) != null)
+                Container(
+                  margin: const EdgeInsets.only(right: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(color: AppColors.accent.withValues(alpha: 0.16), borderRadius: BorderRadius.circular(999)),
+                  child: Text(_kilos(_total)!, style: AppTheme.display(fontSize: 13, color: AppColors.accent)),
+                ),
+              for (var c = 0; c < _calidades.length; c++)
+                Container(
+                  margin: const EdgeInsets.only(right: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(color: AppColors.accentSoft, borderRadius: BorderRadius.circular(999)),
+                  child: Text.rich(
+                    TextSpan(
+                      children: [
+                        TextSpan(text: '${_calidades[c].codigo}: ', style: text.labelSmall),
+                        TextSpan(text: '${_totalCol(c)}', style: AppTheme.display(fontSize: 13, color: AppColors.text)),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -647,7 +942,9 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'Hoja enviada: el despacho ya está en Cosechas esperando su liquidación.',
+              _liquidada
+                  ? 'El despacho ya se liquidó: la hoja queda como registro y no se puede editar.'
+                  : 'Hoja enviada: el despacho está en Cosechas. Puedes corregirla hasta que llegue la liquidación; los cambios pasan al despacho.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.text),
             ),
           ),
@@ -684,20 +981,21 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
     );
   }
 
-  Widget _matriz() {
+  Widget _matriz({bool grande = false}) {
     final text = Theme.of(context).textTheme;
-    const anchoFila = 40.0;
-    const anchoTotal = 52.0;
+    const anchoFila = 34.0;
+    const anchoTotal = 48.0;
+    final alto = grande ? 48.0 : 40.0;
 
     return GlassCard(
-      radius: 20,
+      radius: grande ? 16 : 20,
       padding: const EdgeInsets.fromLTRB(8, 10, 8, 8),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          // Las calidades reparten el ancho disponible (mínimo 44 por celda;
+          // Las calidades reparten el ancho disponible (mínimo 40 por celda;
           // si no entran, la tabla se desliza a los lados).
           final libre = constraints.maxWidth - anchoFila - anchoTotal;
-          final anchoCelda = (libre / _calidades.length).clamp(44.0, 80.0);
+          final anchoCelda = (libre / _calidades.length).clamp(40.0, 80.0);
           final anchoTabla = anchoFila + anchoTotal + anchoCelda * _calidades.length;
 
           final tabla = SizedBox(
@@ -730,7 +1028,7 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
                   ],
                 ),
                 const SizedBox(height: 6),
-                for (var f = 0; f < _celdas.length; f++) _filaWidget(f, anchoFila, anchoCelda, anchoTotal),
+                for (var f = 0; f < _celdas.length; f++) _filaWidget(f, anchoFila, anchoCelda, anchoTotal, alto),
               ],
             ),
           );
@@ -741,7 +1039,7 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
     );
   }
 
-  Widget _filaWidget(int f, double anchoFila, double anchoCelda, double anchoTotal) {
+  Widget _filaWidget(int f, double anchoFila, double anchoCelda, double anchoTotal, double alto) {
     // El total por fila es libre (depende del camión): solo ayuda a revisar el orden.
     final total = _totalFila(f);
     return Padding(
@@ -764,13 +1062,13 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
               width: anchoCelda,
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 2),
-                child: _Celda(valor: _celdas[f][c], seleccionada: _sel == (f, c), onTap: () => _seleccionar(f, c)),
+                child: _Celda(valor: _celdas[f][c], seleccionada: _sel == (f, c), alto: alto, onTap: () => _seleccionar(f, c)),
               ),
             ),
           SizedBox(
             width: anchoTotal,
             child: Container(
-              height: 40,
+              height: alto,
               margin: const EdgeInsets.only(left: 4),
               alignment: Alignment.center,
               decoration: BoxDecoration(color: AppColors.accent.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(10)),
@@ -837,16 +1135,20 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
                         ],
                       ),
                     ),
+                    Text(
+                      _kilos(_total) ?? 'Pon el peso por $_envase en Plantillas para ver los kilos',
+                      style: text.labelSmall?.copyWith(color: _kilos(_total) == null ? AppColors.textSubtle : AppColors.textMuted),
+                    ),
                   ],
                 ),
                 const Spacer(),
-                GlassCircleButton(icon: Icons.share_rounded, tooltip: 'Compartir por WhatsApp', size: 50, onPressed: _compartir),
+                GlassCircleButton(icon: Icons.share_rounded, tooltip: 'Compartir hoja', size: 50, onPressed: _abrirCompartir),
               ],
             ),
             if (!_enviada) ...[
               const SizedBox(height: 10),
               AgroActionButton(
-                label: _saving ? 'Enviando…' : 'Cerrar hoja y enviar despacho',
+                label: _saving ? 'Enviando…' : 'Revisar y enviar despacho',
                 icon: Icons.task_alt_rounded,
                 primary: true,
                 height: 54,
@@ -971,9 +1273,10 @@ class _HojaAnotacionScreenState extends ConsumerState<HojaAnotacionScreen> {
 class _Celda extends StatelessWidget {
   final int valor;
   final bool seleccionada;
+  final double alto;
   final VoidCallback onTap;
 
-  const _Celda({required this.valor, required this.seleccionada, required this.onTap});
+  const _Celda({required this.valor, required this.seleccionada, required this.onTap, this.alto = 40});
 
   @override
   Widget build(BuildContext context) {
@@ -981,7 +1284,7 @@ class _Celda extends StatelessWidget {
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 120),
-        height: 40,
+        height: alto,
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: seleccionada
@@ -1130,6 +1433,157 @@ class _CalidadDialogState extends State<_CalidadDialog> {
         TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancelar')),
         TextButton(onPressed: _aceptar, child: Text(widget.inicial == null ? 'Agregar' : 'Guardar')),
       ],
+    );
+  }
+}
+
+/// Resumen antes de enviar: total, calidades y datos del camión, con acceso
+/// rápido a corregir cada dato.
+class _ResumenEnvio extends StatelessWidget {
+  final int total;
+  final String? kilos;
+  final String envase;
+  final int filas;
+  final List<(Calidad, int)> calidades;
+  final String destino;
+  final String chofer;
+  final String placa;
+  final String comisionista;
+
+  const _ResumenEnvio({
+    required this.total,
+    required this.kilos,
+    required this.envase,
+    required this.filas,
+    required this.calidades,
+    required this.destino,
+    required this.chofer,
+    required this.placa,
+    required this.comisionista,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    Widget dato(String clave, IconData icon, String label, String valor, {bool obligatorio = false}) => ListTile(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(icon, color: valor.isEmpty && obligatorio ? AppColors.warning : AppColors.accent),
+          title: Text(label, style: text.labelSmall),
+          subtitle: Text(
+            valor.isEmpty ? (obligatorio ? 'Falta: toca para agregar' : 'Opcional') : valor,
+            style: text.titleSmall?.copyWith(color: valor.isEmpty ? (obligatorio ? AppColors.warning : AppColors.textSubtle) : AppColors.text),
+          ),
+          trailing: const Icon(Icons.edit_outlined, size: 18),
+          onTap: () => Navigator.of(context).pop(clave),
+        );
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Revisar y enviar', style: text.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text('$total', style: AppTheme.display(fontSize: 40, color: AppColors.accent)),
+                const SizedBox(width: 6),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    '${envase}s en $filas fila${filas == 1 ? '' : 's'}${kilos == null ? '' : ' · $kilos'}',
+                    style: text.bodyMedium,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final (c, n) in calidades)
+                  if (n > 0)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(color: AppColors.accentSoft, borderRadius: BorderRadius.circular(999)),
+                      child: Text('${c.codigo} ${c.nombre}: $n', style: text.labelMedium),
+                    ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            dato('destino', Icons.storefront_outlined, 'Destino', destino, obligatorio: true),
+            dato('chofer', Icons.badge_outlined, 'Chofer', chofer),
+            dato('placa', Icons.pin_outlined, 'Placa', placa),
+            dato('comisionista', Icons.handshake_outlined, 'Comisionista', comisionista),
+            const SizedBox(height: 6),
+            Text('Se creará el despacho "por liquidar". Podrás corregir la hoja hasta que llegue la liquidación.', style: text.bodySmall),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: AgroActionButton(label: 'Revisar hoja', icon: Icons.grid_on_rounded, onPressed: () => Navigator.of(context).pop('revisar')),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: AgroActionButton(
+                    label: 'Enviar',
+                    icon: Icons.local_shipping_rounded,
+                    primary: true,
+                    onPressed: () => Navigator.of(context).pop(destino.isEmpty ? 'destino' : 'enviar'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Confirmación del envío, con atajo para compartir la hoja.
+class _EnvioListo extends StatelessWidget {
+  final int total;
+  final String? kilos;
+  final String envase;
+  final String destino;
+
+  const _EnvioListo({required this.total, required this.kilos, required this.envase, required this.destino});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.task_alt_rounded, size: 48, color: AppColors.accent),
+            const SizedBox(height: 8),
+            Text('Despacho registrado', style: text.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 4),
+            Text(
+              '$total ${envase}s${kilos == null ? '' : ' ($kilos)'} a $destino · ya está en Cosechas por liquidar',
+              style: text.bodyMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            AgroActionButton(
+              label: 'Compartir hoja (imagen o PDF)',
+              icon: Icons.share_rounded,
+              primary: true,
+              onPressed: () => Navigator.of(context).pop(true),
+            ),
+            const SizedBox(height: 8),
+            TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Listo')),
+          ],
+        ),
+      ),
     );
   }
 }

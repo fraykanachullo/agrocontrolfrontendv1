@@ -14,7 +14,7 @@ Future<void> openPlanilla(
   // La hoja nueva se arma con la plantilla del cultivo (calidades, filas, envase).
   final plantilla = await PlantillaLocalDatasource().paraCultivo(cultivo);
   if (!context.mounted) return;
-  await Navigator.of(context).push(
+  await Navigator.of(context, rootNavigator: true).push(
     MaterialPageRoute(
       builder: (_) => HojaAnotacionScreen(
         campanaId: campanaId,
