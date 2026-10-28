@@ -48,6 +48,10 @@ dependencies:
   package_info_plus: ^9.0.1
   fl_chart: ^1.2.0
   crypto: ^3.0.7
+  pdf: ^3.12.0
+  # No se usa directo: lo trae pdf. Se acota porque image 4.11 necesita un
+  # archive más nuevo que el que permite el SDK y no compila.
+  image: ">=4.5.0 <4.11.0"
 
 dev_dependencies:
   flutter_test:

@@ -911,6 +911,44 @@ class CosechasNotifier extends StateNotifier<CosechasState> {
     await _localDatasource.updateCosecha(cosechaId, {columna: fecha?.toIso8601String()});
     await loadData(campanaId);
   }
+
+  /// La hoja enviada se puede seguir corrigiendo mientras su despacho no se
+  /// liquide: reemplaza el detalle por fila y calidad y los totales. Devuelve
+  /// `false` (sin tocar nada) si el despacho ya se liquidó o no existe.
+  // Aún solo local: la cola de sync solo sube altas.
+  Future<bool> actualizarDespachoDesdeHoja(
+    int campanaId,
+    int cosechaId, {
+    required int total,
+    required String conductor,
+    required String mercadoDestino,
+    required List<Map<String, dynamic>> detalles,
+  }) async {
+    final despacho = (await _localDatasource.listCosechas(campanaId)).where((c) => c['id'] == cosechaId).firstOrNull;
+    if (despacho == null || despacho['estado'] != 'pendiente') return false;
+    await _localDatasource.deleteCosechaDetalles(cosechaId);
+    for (final d in detalles) {
+      await _localDatasource.insertCosechaDetalle({
+        'cosecha_id': cosechaId,
+        'categoria': d['categoria'],
+        'simbolo': d['simbolo'],
+        'posicion_fila': d['posicion_fila'],
+        'cantidad_bultos': d['cantidad_bultos'] ?? 0,
+        'created_at': DateTime.now().toIso8601String(),
+        'is_synced': 0,
+        'uuid_local': SyncQueueService.generateUuid(),
+      });
+    }
+    await _localDatasource.updateCosecha(cosechaId, {
+      'cantidad_unidades': total,
+      'total_bultos': total,
+      'conductor': conductor,
+      'mercado_destino': mercadoDestino,
+      'is_synced': 0,
+    });
+    await loadData(campanaId);
+    return true;
+  }
 }
 
 final cosechasProvider = StateNotifierProvider<CosechasNotifier, CosechasState>(

@@ -62,7 +62,7 @@ class _CosechasScreenState extends ConsumerState<CosechasScreen> {
   }
 
   Future<void> _abrir(Cosecha c) async {
-    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => DespachoScreen(cosecha: c)));
+    await Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(builder: (_) => DespachoScreen(cosecha: c)));
     if (mounted) _reload();
   }
 
@@ -92,7 +92,7 @@ class _CosechasScreenState extends ConsumerState<CosechasScreen> {
           radius: 18,
           padding: const EdgeInsets.all(12),
           onTap: () async {
-            await Navigator.of(context).push(
+            await Navigator.of(context, rootNavigator: true).push(
               MaterialPageRoute(
                 builder: (_) => PlanillasScreen(
                   campaignId: widget.campaignId,
