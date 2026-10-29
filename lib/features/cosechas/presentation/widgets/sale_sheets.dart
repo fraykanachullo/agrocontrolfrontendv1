@@ -6,6 +6,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/form_pieces.dart';
 import '../../../../core/widgets/glass.dart';
+import '../../domain/entities/cosecha.dart';
 
 /// Modalidades de venta (RF-COS-03 a RF-COS-05).
 enum SaleMode { despachoConHoja, ventaEnCampo, despachoLibre }
@@ -409,6 +410,92 @@ class _FreeDispatchSheetState extends ConsumerState<_FreeDispatchSheet> {
         const RecordSummary(
           text: 'Queda "por liquidar". Cuando el comprador te dé su lista, registra la liquidación por calidad en Cosechas.',
         ),
+      ],
+    );
+  }
+}
+
+/// Corregir una venta en campo ya registrada: cantidad, kilos y precio.
+Future<void> showCorregirVentaCampo(BuildContext context, Cosecha venta) =>
+    showRecordSheet(context, _CorregirVentaCampo(venta: venta));
+
+class _CorregirVentaCampo extends ConsumerStatefulWidget {
+  final Cosecha venta;
+
+  const _CorregirVentaCampo({required this.venta});
+
+  @override
+  ConsumerState<_CorregirVentaCampo> createState() => _CorregirVentaCampoState();
+}
+
+class _CorregirVentaCampoState extends ConsumerState<_CorregirVentaCampo> {
+  late final bool _porKilo = widget.venta.tipoCalculoVenta == 'por_kilo';
+  late final _unitsCtrl = TextEditingController(text: '${widget.venta.cantidadUnidades}');
+  late final _kgCtrl = TextEditingController(text: _txt(widget.venta.pesoTotalKg));
+  late final _priceCtrl = TextEditingController(text: _txt(widget.venta.precioUnitario));
+  bool _saving = false;
+
+  static String _txt(double? v) => v == null || v == 0 ? '' : (v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(2));
+
+  int get _units => int.tryParse(_unitsCtrl.text) ?? 0;
+  double get _kg => AmountInput.parse(_kgCtrl);
+  double get _price => AmountInput.parse(_priceCtrl);
+  double get _total => (_porKilo ? _kg : _units) * _price;
+  String get _envase => widget.venta.unidadEmpaque ?? 'java';
+
+  @override
+  void dispose() {
+    _unitsCtrl.dispose();
+    _kgCtrl.dispose();
+    _priceCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _guardar() async {
+    if (_total <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Completa la cantidad y el precio')));
+      return;
+    }
+    setState(() => _saving = true);
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    final v = widget.venta;
+    await ref.read(cosechasProvider.notifier).corregirVentaEnCampo(
+          v.campanaId,
+          v.id!,
+          cantidad: _units,
+          pesoKg: _porKilo ? _kg : null,
+          precio: _price,
+          cobrado: v.fechaCobro != null,
+        );
+    ref.read(dashboardRefreshTrigger.notifier).update((s) => s + 1);
+    HapticFeedback.mediumImpact();
+    navigator.pop();
+    messenger.showSnackBar(SnackBar(content: Text('Venta corregida: ${formatSoles(_total)}')));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RecordSheetScaffold(
+      title: 'Corregir venta en campo',
+      subtitle: 'Cambia la cantidad o el precio que anotaste mal',
+      saveBar: RecordSaveBar(label: 'Guardar corrección', saving: _saving, onSave: _guardar, total: _total),
+      children: [
+        _NumberRow(label: 'Cantidad', suffix: '${_envase}s', controller: _unitsCtrl, onChanged: () => setState(() {})),
+        if (_porKilo) ...[
+          const SizedBox(height: 14),
+          _NumberRow(label: 'Peso total', suffix: 'kg', controller: _kgCtrl, onChanged: () => setState(() {}), decimal: true),
+        ],
+        const SizedBox(height: 14),
+        _NumberRow(
+          label: 'Precio por ${_porKilo ? 'kg' : _envase}',
+          prefix: 'S/ ',
+          controller: _priceCtrl,
+          onChanged: () => setState(() {}),
+          decimal: true,
+        ),
+        const SizedBox(height: 16),
+        RecordSummary(text: '${_porKilo ? '${_txt(_kg)} kg' : '$_units ${_envase}s'} × ${formatSoles(_price)} = ${formatSoles(_total)}'),
       ],
     );
   }

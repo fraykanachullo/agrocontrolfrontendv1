@@ -63,6 +63,7 @@ class GlassCard extends StatelessWidget {
   final double radius;
   final bool highlight;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
 
   const GlassCard({
     super.key,
@@ -71,6 +72,7 @@ class GlassCard extends StatelessWidget {
     this.radius = 20,
     this.highlight = false,
     this.onTap,
+    this.onLongPress,
   });
 
   @override
@@ -96,6 +98,7 @@ class GlassCard extends StatelessWidget {
         type: MaterialType.transparency,
         child: InkWell(
           onTap: onTap,
+          onLongPress: onLongPress,
           borderRadius: shape,
           child: Padding(padding: padding, child: child),
         ),

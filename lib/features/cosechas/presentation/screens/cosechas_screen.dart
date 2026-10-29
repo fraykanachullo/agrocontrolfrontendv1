@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/providers/app_providers.dart';
@@ -58,6 +59,38 @@ class _CosechasScreenState extends ConsumerState<CosechasScreen> {
       case SaleMode.despachoLibre:
         await showFreeDispatchSheet(context, campanaId: _campanaId, campanaNombre: nombre);
     }
+    if (mounted) _reload();
+  }
+
+  /// Mantener presionado: ver el detalle o corregir la venta ya liquidada.
+  Future<void> _opciones(Cosecha c) async {
+    HapticFeedback.mediumImpact();
+    final accion = await showModalBottomSheet<String>(
+      context: context,
+      useRootNavigator: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.visibility_outlined),
+              title: const Text('Ver detalle'),
+              onTap: () => Navigator.of(ctx).pop('ver'),
+            ),
+            if (c.isLiquidado)
+              ListTile(
+                leading: const Icon(Icons.edit_outlined),
+                title: Text(c.enCampo ? 'Corregir venta' : 'Corregir liquidación'),
+                subtitle: const Text('Si te equivocaste en precios o cantidades'),
+                onTap: () => Navigator.of(ctx).pop('corregir'),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || accion == null) return;
+    if (accion == 'ver') return _abrir(c);
+    await corregirVenta(context, c);
     if (mounted) _reload();
   }
 
@@ -172,7 +205,7 @@ class _CosechasScreenState extends ConsumerState<CosechasScreen> {
           for (final c in lista)
             Padding(
               padding: const EdgeInsets.only(bottom: 10),
-              child: _ShipmentCard(cosecha: c, onTap: () => _abrir(c)),
+              child: _ShipmentCard(cosecha: c, onTap: () => _abrir(c), onLongPress: () => _opciones(c)),
             ),
       ],
     );
@@ -272,8 +305,9 @@ class _Segment extends StatelessWidget {
 class _ShipmentCard extends ConsumerWidget {
   final Cosecha cosecha;
   final VoidCallback onTap;
+  final VoidCallback onLongPress;
 
-  const _ShipmentCard({required this.cosecha, required this.onTap});
+  const _ShipmentCard({required this.cosecha, required this.onTap, required this.onLongPress});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -291,6 +325,7 @@ class _ShipmentCard extends ConsumerWidget {
       radius: 20,
       padding: const EdgeInsets.all(14),
       onTap: onTap,
+      onLongPress: onLongPress,
       child: Row(
         children: [
           Container(

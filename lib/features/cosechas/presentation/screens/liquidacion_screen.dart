@@ -19,7 +19,11 @@ class _Linea {
   final TextEditingController vendidoCtrl;
   final TextEditingController precioCtrl = TextEditingController();
 
-  _Linea(this.calidad) : vendidoCtrl = TextEditingController(text: '${calidad.anotado}');
+  // Al corregir, arranca con lo vendido y el precio que se guardaron.
+  _Linea(this.calidad) : vendidoCtrl = TextEditingController(text: '${calidad.vendido ?? calidad.anotado}') {
+    final p = calidad.precio;
+    if (p != null && p > 0) precioCtrl.text = p == p.roundToDouble() ? p.toStringAsFixed(0) : p.toStringAsFixed(2);
+  }
 
   int get vendido => (int.tryParse(vendidoCtrl.text) ?? 0).clamp(0, calidad.anotado);
   int get merma => calidad.anotado - vendido;
@@ -56,6 +60,28 @@ class _LiquidacionScreenState extends ConsumerState<LiquidacionScreen> {
   bool _saving = false;
 
   Cosecha get _c => widget.cosecha;
+
+  /// Ya estaba liquidado: se está corrigiendo un monto mal anotado.
+  bool get _corrigiendo => _c.isLiquidado;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!_corrigiendo) return;
+    final d = (_c.liquidacion['descuentos'] as Map?) ?? const {};
+    String txt(Object? v) {
+      final n = (v as num?)?.toDouble() ?? 0;
+      return n == 0 ? '' : (n == n.roundToDouble() ? n.toStringAsFixed(0) : n.toStringAsFixed(2));
+    }
+
+    _comisionCtrl.text = txt(d['comision_pct']);
+    _fleteCtrl.text = txt(d['flete']);
+    _descargaCtrl.text = txt(d['descarga']);
+    _rellenoCtrl.text = txt(d['relleno']);
+    _otrosCtrl.text = txt(d['otros']);
+    _formaCobro = _c.liquidacion['forma_cobro'] as String? ?? _formaCobro;
+    _cobrado = _c.fechaCobro != null;
+  }
   String get _envase => _c.unidadEmpaque ?? 'java';
 
   int get _anotado => _lineas.fold(0, (s, l) => s + l.calidad.anotado);
@@ -129,7 +155,7 @@ class _LiquidacionScreenState extends ConsumerState<LiquidacionScreen> {
       HapticFeedback.mediumImpact();
       navigator.pop(true);
       messenger.showSnackBar(SnackBar(
-        content: Text('Liquidación guardada: ${formatSoles(_neto)}${_cobrado ? '' : ' por cobrar'}'),
+        content: Text('${_corrigiendo ? 'Liquidación corregida' : 'Liquidación guardada'}: ${formatSoles(_neto)}${_cobrado ? '' : ' por cobrar'}'),
       ));
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text('Error: $e')));
@@ -153,7 +179,7 @@ class _LiquidacionScreenState extends ConsumerState<LiquidacionScreen> {
                 children: [
                   GlassCircleButton(icon: Icons.arrow_back_rounded, tooltip: 'Volver', onPressed: () => Navigator.of(context).maybePop()),
                   const SizedBox(width: 12),
-                  Text('Registrar liquidación', style: text.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+                  Text(_corrigiendo ? 'Corregir liquidación' : 'Registrar liquidación', style: text.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
                 ],
               ),
             ),
@@ -199,7 +225,12 @@ class _LiquidacionScreenState extends ConsumerState<LiquidacionScreen> {
               ),
           ],
         ),
-        bottomNavigationBar: RecordSaveBar(label: 'Guardar liquidación', saving: _saving, onSave: _guardar, total: _neto),
+        bottomNavigationBar: RecordSaveBar(
+          label: _corrigiendo ? 'Guardar corrección' : 'Guardar liquidación',
+          saving: _saving,
+          onSave: _guardar,
+          total: _neto,
+        ),
       ),
     );
   }

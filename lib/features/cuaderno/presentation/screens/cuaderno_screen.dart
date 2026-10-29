@@ -7,6 +7,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/form_pieces.dart';
 import '../../../../core/widgets/glass.dart';
+import '../widgets/editar_registro.dart';
 import '../widgets/expense_sheet.dart';
 import '../widgets/record_sheets.dart';
 
@@ -454,6 +455,8 @@ class HistorialTimelineItem extends ConsumerWidget {
                 radius: 18,
                 padding: const EdgeInsets.all(14),
                 onTap: entry.transaccionId != null && (entry.teDeben || entry.debes) ? () => _marcarPagado(context, ref) : null,
+                // Mantener presionado: corregir o eliminar el registro.
+                onLongPress: entry.registro == null ? null : () => mostrarOpcionesRegistro(context, ref, entry),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [

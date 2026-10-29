@@ -73,6 +73,38 @@ class CampanaLocalDatasource {
     );
   }
 
+  // ── Corregir registros del cuaderno (aún solo local: la cola de sync solo sube altas) ──
+
+  Future<void> updateTransaccion(int id, Map<String, dynamic> data) async {
+    final db = await AppDatabase.database;
+    await db.update('transacciones', data, where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> deleteTransaccion(int id) async {
+    final db = await AppDatabase.database;
+    await db.delete('transacciones', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> updateActividad(int id, Map<String, dynamic> data) async {
+    final db = await AppDatabase.database;
+    await db.update('actividades', data, where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> deleteActividad(int id) async {
+    final db = await AppDatabase.database;
+    await db.delete('actividades', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> updateIncidencia(int id, Map<String, dynamic> data) async {
+    final db = await AppDatabase.database;
+    await db.update('incidencias', data, where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> deleteIncidencia(int id) async {
+    final db = await AppDatabase.database;
+    await db.delete('incidencias', where: 'id = ?', whereArgs: [id]);
+  }
+
   Future<int> insertTransaccion(Map<String, dynamic> data) async {
     final db = await AppDatabase.database;
     return await db.insert('transacciones', data);
