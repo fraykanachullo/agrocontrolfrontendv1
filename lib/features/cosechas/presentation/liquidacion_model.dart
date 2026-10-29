@@ -43,12 +43,14 @@ class CalidadCarga {
 List<CalidadCarga> calidadesDe(Cosecha c) {
   final vendidos = (c.liquidacion['vendidos'] as Map?)?.map((k, v) => MapEntry('$k', (v as num).toInt())) ?? const {};
   if (c.detalles.isEmpty) {
+    // Venta por kilo: el precio es por kg, así que la cantidad son los kilos.
+    final porKilo = c.tipoCalculoVenta == 'por_kilo' && (c.pesoTotalKg ?? 0) > 0;
     return [
       CalidadCarga(
         clave: kTodaLaCarga,
-        simbolo: '∑',
-        nombre: 'Toda la carga',
-        anotado: c.cantidadUnidades,
+        simbolo: porKilo ? 'kg' : '∑',
+        nombre: porKilo ? 'Toda la carga (kg)' : 'Toda la carga',
+        anotado: porKilo ? c.pesoTotalKg!.round() : c.cantidadUnidades,
         precio: c.precioUnitario,
         vendido: vendidos[kTodaLaCarga],
       ),

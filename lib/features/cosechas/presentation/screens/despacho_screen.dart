@@ -14,10 +14,18 @@ import '../../../planillas/domain/entities/planilla.dart';
 import '../../../planillas/presentation/planilla_routes.dart';
 import '../../domain/entities/cosecha.dart';
 import '../liquidacion_model.dart';
+import '../widgets/sale_sheets.dart';
 import 'liquidacion_screen.dart';
 
 /// Detalle de un despacho o venta (RF-COS-13): datos, trazabilidad, carga
 /// por calidad, evidencias y, si ya se liquidó, el resumen de la liquidación.
+/// Corregir una venta ya liquidada: la venta en campo con su hoja simple; el
+/// despacho, reabriendo la liquidación con los precios y descuentos guardados.
+Future<void> corregirVenta(BuildContext context, Cosecha c) {
+  if (c.tipoVenta == 'parcela') return showCorregirVentaCampo(context, c);
+  return Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(builder: (_) => LiquidacionScreen(cosecha: c)));
+}
+
 class DespachoScreen extends ConsumerWidget {
   final Cosecha cosecha;
 
@@ -118,6 +126,14 @@ class DespachoScreen extends ConsumerWidget {
                       style: text.titleMedium?.copyWith(fontWeight: FontWeight.w800),
                     ),
                   ),
+                  if (c.isLiquidado) ...[
+                    GlassCircleButton(
+                      icon: Icons.edit_outlined,
+                      tooltip: view.enCampo ? 'Corregir venta' : 'Corregir liquidación',
+                      onPressed: () => corregirVenta(context, c),
+                    ),
+                    const SizedBox(width: 10),
+                  ],
                   Icon(c.isSynced ? Icons.cloud_done_outlined : Icons.cloud_upload_outlined,
                       size: 20, color: c.isSynced ? AppColors.accent : AppColors.warning),
                 ],

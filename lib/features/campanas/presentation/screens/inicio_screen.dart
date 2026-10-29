@@ -13,6 +13,7 @@ import '../../../cuaderno/presentation/widgets/record_sheets.dart';
 import '../../domain/entities/campana.dart';
 import '../campaign_actions.dart';
 import '../campaign_display.dart';
+import '../../../cuaderno/presentation/widgets/editar_registro.dart';
 import '../widgets/campaign_tile.dart';
 
 // es_419: miles con coma y decimales con punto (S/ 48,320.20), como se usa en Perú.
@@ -896,14 +897,16 @@ class _TodayMovements extends ConsumerWidget {
 
 /// Fila de movimiento: icono por tipo, título, hora/descripción, estado de
 /// sincronización y monto con signo.
-class MovementTile extends StatelessWidget {
+class MovementTile extends ConsumerWidget {
   final HistorialEntry entry;
 
   const MovementTile({super.key, required this.entry});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final text = Theme.of(context).textTheme;
+    // Las ventas (cosechas con monto) son ingreso, igual que los ingresos directos.
+    final esIngreso = entry.tipo == 'ingreso' || entry.tipo == 'cosecha';
     final (icon, color) = switch (entry.tipo) {
       'gasto' => (Icons.payments_outlined, AppColors.expense),
       'ingreso' => (Icons.savings_outlined, AppColors.positive),
@@ -917,6 +920,8 @@ class MovementTile extends StatelessWidget {
     return GlassCard(
       radius: 18,
       padding: const EdgeInsets.all(14),
+      // Mantener presionado: corregir o eliminar.
+      onLongPress: entry.registro == null ? null : () => mostrarOpcionesRegistro(context, ref, entry),
       child: Row(
         children: [
           Container(
@@ -957,10 +962,10 @@ class MovementTile extends StatelessWidget {
           if (monto != null && monto > 0) ...[
             const SizedBox(width: 8),
             Text(
-              signedAmount(entry.tipo == 'ingreso' ? monto : -monto),
+              signedAmount(esIngreso ? monto : -monto),
               style: AppTheme.display(
                 fontSize: 14,
-                color: entry.tipo == 'ingreso' ? AppColors.positive : AppColors.expense,
+                color: esIngreso ? AppColors.positive : AppColors.expense,
               ),
             ),
           ],

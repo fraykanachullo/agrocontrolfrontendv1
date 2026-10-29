@@ -874,12 +874,13 @@ class CosechasNotifier extends StateNotifier<CosechasState> {
       // Si llegó la liquidación, la carga salió y llegó al mercado.
       if (esDespacho && cosechaMap['fecha_salida'] == null) 'fecha_salida': cosechaMap['fecha_envio'] ?? ahora,
       if (esDespacho && cosechaMap['fecha_recepcion'] == null) 'fecha_recepcion': ahora,
-      'fecha_cobro': cobrado ? ahora : null,
+      // Al corregir una liquidación se conservan las fechas originales.
+      'fecha_cobro': cobrado ? (cosechaMap['fecha_cobro'] ?? ahora) : null,
       'estado': 'entregado',
       'precio_unitario': precioUnitarioGlobal,
       'descuentos_logistica': descuentosLogistica,
       'monto_neto_final': montoNeto,
-      'fecha_liquidacion': DateTime.now().toIso8601String(),
+      'fecha_liquidacion': cosechaMap['fecha_liquidacion'] ?? ahora,
       'liquidacion_json': detalle == null ? null : jsonEncode(detalle),
       'is_synced': 0,
     });
@@ -910,6 +911,32 @@ class CosechasNotifier extends StateNotifier<CosechasState> {
     };
     await _localDatasource.updateCosecha(cosechaId, {columna: fecha?.toIso8601String()});
     await loadData(campanaId);
+  }
+
+  /// Corrige una venta en campo (cantidad, kilos o precio) y recalcula el
+  /// monto. Conserva si ya se cobró y cuándo.
+  Future<void> corregirVentaEnCampo(
+    int campanaId,
+    int cosechaId, {
+    required int cantidad,
+    double? pesoKg,
+    required double precio,
+    required bool cobrado,
+  }) async {
+    await _localDatasource.updateCosecha(cosechaId, {
+      'cantidad_unidades': cantidad,
+      'total_bultos': cantidad,
+      'peso_total_kg': ?pesoKg,
+      'is_synced': 0,
+    });
+    await liquidarCosecha(
+      campanaId,
+      cosechaId,
+      detallesPrecios: const [],
+      descuentosLogistica: 0,
+      precioUnitarioGlobal: precio,
+      cobrado: cobrado,
+    );
   }
 
   /// La hoja enviada se puede seguir corrigiendo mientras su despacho no se
@@ -1044,6 +1071,10 @@ class HistorialEntry {
   /// `por_cobrar` (te deben), `por_pagar` (debes) o `pagado`.
   final String? estadoPago;
 
+  /// La fila tal cual está en la base (transacción, actividad, incidencia o
+  /// cosecha), para corregirla con una pulsación larga.
+  final Map<String, dynamic>? registro;
+
   const HistorialEntry({
     required this.tipo,
     required this.titulo,
@@ -1054,6 +1085,7 @@ class HistorialEntry {
     this.fecha,
     this.transaccionId,
     this.estadoPago,
+    this.registro,
   });
 
   bool get teDeben => estadoPago == 'por_cobrar';
@@ -1095,11 +1127,13 @@ final historialRangoProvider = FutureProvider.family<List<HistorialEntry>, (int,
         hora: _hora(fecha),
         isSynced: (a['is_synced'] as int? ?? 0) == 1,
         fecha: DateTime.tryParse(fecha),
+        registro: a,
       ),
     );
   }
 
-  for (final i in incidencias.map(Incidencia.fromMap)) {
+  for (final fila in incidencias) {
+    final i = Incidencia.fromMap(fila);
     entries.add(
       HistorialEntry(
         tipo: 'incidencia',
@@ -1108,6 +1142,7 @@ final historialRangoProvider = FutureProvider.family<List<HistorialEntry>, (int,
         hora: _hora(i.fecha),
         isSynced: i.isSynced,
         fecha: DateTime.tryParse(i.fecha),
+        registro: fila,
       ),
     );
   }
@@ -1128,6 +1163,7 @@ final historialRangoProvider = FutureProvider.family<List<HistorialEntry>, (int,
         fecha: DateTime.tryParse(fecha),
         transaccionId: t['id'] as int?,
         estadoPago: t['estado_pago'] as String?,
+        registro: t,
       ),
     );
   }
@@ -1141,6 +1177,8 @@ final historialRangoProvider = FutureProvider.family<List<HistorialEntry>, (int,
     final enCampo = c['tipo_venta'] == 'parcela';
     final synced = (c['is_synced'] as int? ?? 0) == 1;
     final neto = (c['monto_neto_final'] as num?)?.toDouble();
+    final cantidad = (c['cantidad_unidades'] as num?) ?? 0;
+    final unidades = cantidad == cantidad.roundToDouble() ? '${cantidad.toInt()}' : '$cantidad';
     // Liquidado pero sin cobrar: se marca como cobrado desde el detalle del despacho.
     final pagoDespacho = c['estado'] != 'entregado' ? null : (c['fecha_cobro'] == null ? 'por_cobrar' : 'pagado');
 
@@ -1149,14 +1187,15 @@ final historialRangoProvider = FutureProvider.family<List<HistorialEntry>, (int,
         HistorialEntry(
           tipo: 'cosecha',
           titulo: enCampo
-              ? 'Venta en campo: ${c['cantidad_unidades']} ${envase}s'
-              : 'Despacho: ${c['cantidad_unidades']} ${envase}s',
+              ? 'Venta en campo: $unidades ${envase}s'
+              : 'Despacho: $unidades ${envase}s',
           descripcion: enCampo ? (c['conductor'] as String? ?? '') : 'Destino: $destino',
           hora: _hora(envio),
           monto: enCampo ? neto : null,
           isSynced: synced,
           fecha: DateTime.tryParse(envio),
           estadoPago: enCampo ? pagoDespacho : null,
+          registro: c,
         ),
       );
     }
@@ -1165,12 +1204,13 @@ final historialRangoProvider = FutureProvider.family<List<HistorialEntry>, (int,
         HistorialEntry(
           tipo: 'cosecha',
           titulo: 'Liquidación #D-${(c['id'] as int? ?? 0).toString().padLeft(3, '0')}',
-          descripcion: '${c['cantidad_unidades']} ${envase}s → $destino',
+          descripcion: '$unidades ${envase}s → $destino',
           hora: _hora(liquidacion),
           monto: neto,
           isSynced: synced,
           fecha: DateTime.tryParse(liquidacion),
           estadoPago: pagoDespacho,
+          registro: c,
         ),
       );
     }

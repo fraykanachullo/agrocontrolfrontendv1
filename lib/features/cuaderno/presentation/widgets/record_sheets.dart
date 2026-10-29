@@ -28,14 +28,14 @@ const _laborTypes = <(String, String, IconData)>[
   ('Otra labor', 'Otra', Icons.more_horiz_rounded),
 ];
 
-const _incomeConcepts = <(String, String, IconData)>[
+const incomeConcepts = <(String, String, IconData)>[
   ('Venta en campo', 'Venta en campo', Icons.storefront_rounded),
   ('Venta menor', 'Venta menor', Icons.shopping_bag_rounded),
   ('Apoyo / subsidio', 'Apoyo', Icons.volunteer_activism_rounded),
   ('Otro ingreso', 'Otro', Icons.more_horiz_rounded),
 ];
 
-const _incidentTypes = <(String, String, IconData)>[
+const incidentTypes = <(String, String, IconData)>[
   ('Plaga', 'Plaga', Icons.bug_report_rounded),
   ('Enfermedad', 'Enfermedad', Icons.coronavirus_rounded),
   ('Helada', 'Helada', Icons.ac_unit_rounded),
@@ -90,7 +90,7 @@ class _ActivitySheet extends ConsumerStatefulWidget {
 }
 
 class _ActivitySheetState extends ConsumerState<_ActivitySheet> {
-  late String _type = widget.initialType ?? (widget.incident ? _incidentTypes : _laborTypes).first.$1;
+  late String _type = widget.initialType ?? (widget.incident ? incidentTypes : _laborTypes).first.$1;
   String _severity = 'Media';
   late DateTime _date = widget.date ?? DateTime.now();
   final _noteCtrl = TextEditingController();
@@ -176,7 +176,7 @@ class _ActivitySheetState extends ConsumerState<_ActivitySheet> {
           spacing: 8,
           runSpacing: 8,
           children: [
-            for (final (value, label, icon) in incident ? _incidentTypes : _laborTypes)
+            for (final (value, label, icon) in incident ? incidentTypes : _laborTypes)
               SelectPill(icon: icon, label: label, selected: _type == value, onTap: () => setState(() => _type = value)),
           ],
         ),
@@ -243,7 +243,7 @@ class _IncomeSheet extends ConsumerStatefulWidget {
 }
 
 class _IncomeSheetState extends ConsumerState<_IncomeSheet> {
-  String _concept = _incomeConcepts.first.$1;
+  String _concept = incomeConcepts.first.$1;
   bool _collected = true;
   late DateTime _date = widget.date ?? DateTime.now();
   final _amountCtrl = TextEditingController();
@@ -311,7 +311,7 @@ class _IncomeSheetState extends ConsumerState<_IncomeSheet> {
       children: [
         const StepTitle(number: 1, title: 'Concepto'),
         SelectPillRow<String>(
-          options: _incomeConcepts,
+          options: incomeConcepts,
           selected: _concept,
           onSelected: (v) => setState(() => _concept = v),
         ),
