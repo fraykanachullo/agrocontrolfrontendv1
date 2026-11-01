@@ -59,6 +59,10 @@ class _LiquidacionScreenState extends ConsumerState<LiquidacionScreen> {
   File? _comprobante;
   bool _saving = false;
 
+  /// Lo normal: poner directo el total de la boleta. "Por calidad" es opcional.
+  bool _modoTotal = true;
+  final _brutoCtrl = TextEditingController();
+
   Cosecha get _c => widget.cosecha;
 
   /// Ya estaba liquidado: se está corrigiendo un monto mal anotado.
@@ -68,12 +72,17 @@ class _LiquidacionScreenState extends ConsumerState<LiquidacionScreen> {
   void initState() {
     super.initState();
     if (!_corrigiendo) return;
+    _modoTotal = liquidadoConTotal(_c);
     final d = (_c.liquidacion['descuentos'] as Map?) ?? const {};
     String txt(Object? v) {
       final n = (v as num?)?.toDouble() ?? 0;
       return n == 0 ? '' : (n == n.roundToDouble() ? n.toStringAsFixed(0) : n.toStringAsFixed(2));
     }
 
+    if (_modoTotal) _brutoCtrl.text = txt(_c.liquidacion['bruto']);
+    // La foto ya guardada se conserva si no se toma otra.
+    final foto = _c.liquidacion['comprobante'] as String?;
+    if (foto != null && File(foto).existsSync()) _comprobante = File(foto);
     _comisionCtrl.text = txt(d['comision_pct']);
     _fleteCtrl.text = txt(d['flete']);
     _descargaCtrl.text = txt(d['descarga']);
@@ -88,7 +97,7 @@ class _LiquidacionScreenState extends ConsumerState<LiquidacionScreen> {
   int get _vendido => _lineas.fold(0, (s, l) => s + l.vendido);
   int get _merma => _anotado - _vendido;
   double get _mermaPct => _anotado == 0 ? 0 : _merma / _anotado * 100;
-  double get _bruto => _lineas.fold(0, (s, l) => s + l.subtotal);
+  double get _bruto => _modoTotal ? AmountInput.parse(_brutoCtrl) : _lineas.fold(0, (s, l) => s + l.subtotal);
   double get _comision => _bruto * AmountInput.parse(_comisionCtrl) / 100;
   double get _flete => AmountInput.parse(_fleteCtrl);
   double get _descarga => AmountInput.parse(_descargaCtrl);
@@ -102,7 +111,7 @@ class _LiquidacionScreenState extends ConsumerState<LiquidacionScreen> {
     for (final l in _lineas) {
       l.dispose();
     }
-    for (final c in [_comisionCtrl, _fleteCtrl, _descargaCtrl, _rellenoCtrl, _otrosCtrl]) {
+    for (final c in [_brutoCtrl, _comisionCtrl, _fleteCtrl, _descargaCtrl, _rellenoCtrl, _otrosCtrl]) {
       c.dispose();
     }
     super.dispose();
@@ -116,7 +125,11 @@ class _LiquidacionScreenState extends ConsumerState<LiquidacionScreen> {
   }
 
   Future<void> _guardar() async {
-    if (_lineas.any((l) => l.vendido > 0 && l.precio <= 0)) {
+    if (_modoTotal && _bruto <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pon cuánto se vendió en total')));
+      return;
+    }
+    if (!_modoTotal && _lineas.any((l) => l.vendido > 0 && l.precio <= 0)) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Falta el precio de alguna calidad vendida')));
       return;
     }
@@ -129,14 +142,16 @@ class _LiquidacionScreenState extends ConsumerState<LiquidacionScreen> {
         _c.campanaId,
         _c.id!,
         detallesPrecios: [
-          if (!sinDetalle)
+          if (!sinDetalle && !_modoTotal)
             for (final l in _lineas) {'categoria': l.calidad.clave, 'precio_venta': l.precio},
         ],
-        precioUnitarioGlobal: sinDetalle ? _lineas.first.precio : null,
+        precioUnitarioGlobal: sinDetalle && !_modoTotal ? _lineas.first.precio : null,
         descuentosLogistica: _deducciones,
-        vendidos: {for (final l in _lineas) l.calidad.clave: l.vendido},
+        brutoTotal: _modoTotal ? _bruto : null,
+        vendidos: _modoTotal ? const {} : {for (final l in _lineas) l.calidad.clave: l.vendido},
         detalle: {
-          'vendidos': {for (final l in _lineas) l.calidad.clave: l.vendido},
+          if (_modoTotal) 'modo': 'total',
+          if (!_modoTotal) 'vendidos': {for (final l in _lineas) l.calidad.clave: l.vendido},
           'bruto': _bruto,
           'descuentos': {
             'comision_pct': AmountInput.parse(_comisionCtrl),
@@ -179,7 +194,7 @@ class _LiquidacionScreenState extends ConsumerState<LiquidacionScreen> {
                 children: [
                   GlassCircleButton(icon: Icons.arrow_back_rounded, tooltip: 'Volver', onPressed: () => Navigator.of(context).maybePop()),
                   const SizedBox(width: 12),
-                  Text(_corrigiendo ? 'Corregir liquidación' : 'Registrar liquidación', style: text.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+                  Expanded(child: Text(_corrigiendo ? 'Corregir liquidación' : 'Registrar liquidación', overflow: TextOverflow.ellipsis, style: text.titleMedium?.copyWith(fontWeight: FontWeight.w800))),
                 ],
               ),
             ),
@@ -197,10 +212,33 @@ class _LiquidacionScreenState extends ConsumerState<LiquidacionScreen> {
               onPick: _foto,
             ),
             const SizedBox(height: 18),
-            const SectionHeader(title: 'Cierre de calidades'),
-            _calidades(text),
+            const SectionHeader(title: '¿Cómo registras la venta?'),
+            OptionTiles<bool>(
+              options: const [
+                (true, 'Monto total', Icons.payments_rounded),
+                (false, 'Por calidad', Icons.grid_on_rounded),
+              ],
+              selected: _modoTotal,
+              onSelected: (v) => setState(() => _modoTotal = v),
+            ),
             const SizedBox(height: 18),
-            SectionHeader(title: 'Deducciones comerciales', actionLabel: _deducciones > 0 ? '-${formatSoles(_deducciones)}' : null),
+            if (_modoTotal) ...[
+              const SectionHeader(title: 'Venta bruta'),
+              AmountInput(
+                controller: _brutoCtrl,
+                caption: 'CUÁNTO SE VENDIÓ EN TOTAL',
+                quickAmounts: const [],
+                onChanged: () => setState(() {}),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(top: 8, left: 4, right: 4),
+                child: Text('Es el total de la boleta. Si solo tienes lo que te depositaron, ponlo aquí y deja las deducciones vacías.', style: text.bodySmall),
+              ),
+            ] else ...[
+              const SectionHeader(title: 'Cierre de calidades'),
+              _calidades(text),
+            ],
+            SectionHeader(title: 'Deducciones comerciales (opcional)', actionLabel: _deducciones > 0 ? '-${formatSoles(_deducciones)}' : null),
             _deduccionesCard(text),
             const SizedBox(height: 18),
             _ticket(text),
@@ -305,8 +343,13 @@ class _LiquidacionScreenState extends ConsumerState<LiquidacionScreen> {
             ),
             child: Row(
               children: [
-                dato('Vendido', '$_vendido ${_envase}s', AppColors.accent),
-                dato('Merma', '$_merma (${_mermaPct.toStringAsFixed(1)}%)', _merma > 0 ? AppColors.warning : AppColors.text),
+                if (_modoTotal) ...[
+                  dato('Enviado', '$_anotado ${_envase}s', AppColors.accent),
+                  dato('Venta bruta', _bruto > 0 ? formatSoles(_bruto) : '—', AppColors.text),
+                ] else ...[
+                  dato('Vendido', '$_vendido ${_envase}s', AppColors.accent),
+                  dato('Merma', '$_merma (${_mermaPct.toStringAsFixed(1)}%)', _merma > 0 ? AppColors.warning : AppColors.text),
+                ],
                 dato('Comprobante', _comprobante == null ? 'Sin foto' : 'Adjunto', _comprobante == null ? AppColors.textSubtle : AppColors.positive),
               ],
             ),
@@ -489,13 +532,13 @@ class _LiquidacionScreenState extends ConsumerState<LiquidacionScreen> {
                 children: [
                   Icon(Icons.receipt_long_rounded, color: AppColors.accent, size: 20),
                   const SizedBox(width: 8),
-                  Text('Recibo de liquidación', style: text.titleSmall),
+                  Expanded(child: Text('Recibo de liquidación', overflow: TextOverflow.ellipsis, style: text.titleSmall)),
                 ],
               ),
               const SizedBox(height: 12),
               Row(
                 children: [
-                  Expanded(child: Text('Venta bruta ($_vendido ${_envase}s)', style: text.bodyMedium)),
+                  Expanded(child: Text(_modoTotal ? 'Venta bruta' : 'Venta bruta ($_vendido ${_envase}s)', style: text.bodyMedium)),
                   Text('+${formatSoles(_bruto)}', style: AppTheme.display(fontSize: 15, color: AppColors.text)),
                 ],
               ),
@@ -536,7 +579,7 @@ class _LiquidacionScreenState extends ConsumerState<LiquidacionScreen> {
                   ),
                 ],
               ),
-              if (_vendido > 0 && _bruto > 0)
+              if (!_modoTotal && _vendido > 0 && _bruto > 0)
                 Align(
                   alignment: Alignment.centerRight,
                   child: Text('Neto por $_envase vendida: ${formatSoles(_neto / _vendido)}', style: text.labelSmall),

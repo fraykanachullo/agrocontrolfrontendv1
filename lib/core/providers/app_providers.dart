@@ -807,6 +807,9 @@ class CosechasNotifier extends StateNotifier<CosechasState> {
     Map<String, dynamic>? detalle,
     /// Si el dinero ya se recibió; si no, el despacho queda "por cobrar".
     bool cobrado = true,
+    /// Venta bruta total de la boleta, sin precio por calidad. Si viene, manda
+    /// sobre los precios y se limpian los de cada calidad.
+    double? brutoTotal,
   }) async {
     final maps = await _localDatasource.listCosechas(campanaId);
     final cosechaMap = maps.firstWhere(
@@ -828,7 +831,7 @@ class CosechasNotifier extends StateNotifier<CosechasState> {
       if (cat != null) anotados[cat] = (anotados[cat] ?? 0) + d.cantidadBultos;
     }
 
-    for (final d in detalles) {
+    for (final d in brutoTotal != null ? const <CosechaDetalle>[] : detalles) {
       double? precio;
       for (final dp in detallesPrecios) {
         if (d.categoria != null && dp['categoria'] == d.categoria) {
@@ -856,8 +859,13 @@ class CosechasNotifier extends StateNotifier<CosechasState> {
       liquidacionSync.add({'categoria': d.categoria, 'precio_venta': precio});
     }
 
-    // Ruta legacy sin detalles: precio global × peso total o cantidad
-    if (detalles.isEmpty) {
+    if (brutoTotal != null) {
+      totalBruto = brutoTotal;
+      for (final d in detalles.where((d) => d.id != null)) {
+        await _localDatasource.updateCosechaDetalle(d.id!, {'precio_venta': null, 'monto_parcial': null, 'is_synced': 0});
+      }
+    } else if (detalles.isEmpty) {
+      // Ruta legacy sin detalles: precio global × peso total o cantidad.
       // Sin detalle por calidad, la clave '*' trae los bultos vendidos de toda la carga.
       final base = vendidos['*']?.toDouble() ??
           (cosechaMap['peso_total_kg'] as num?)?.toDouble() ??
@@ -894,6 +902,7 @@ class CosechasNotifier extends StateNotifier<CosechasState> {
         'descuentos_logistica': descuentosLogistica,
         'fecha_liquidacion': DateTime.now().toIso8601String(),
         'detalles': liquidacionSync,
+        'bruto_total': ?brutoTotal,
       },
     );
     await loadData(campanaId);
