@@ -4,6 +4,9 @@ import '../domain/entities/cosecha.dart';
 /// Clave usada cuando el despacho no tiene detalle por calidad.
 const kTodaLaCarga = '*';
 
+/// Se liquidó con el total de la boleta, sin precio por calidad.
+bool liquidadoConTotal(Cosecha c) => c.liquidacion['modo'] == 'total';
+
 /// Formas de cobro de una liquidación: (clave, nombre, icono).
 const formasCobro = <(String, String, IconData)>[
   ('deposito', 'Depósito', Icons.account_balance_rounded),

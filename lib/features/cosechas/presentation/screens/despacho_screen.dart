@@ -500,6 +500,7 @@ class _DespachoView {
     final merma = anotado - vendido;
     final bruto = (c.montoNetoFinal ?? 0) + (c.descuentosLogistica ?? 0);
     final comprobante = c.liquidacion['comprobante'] as String?;
+    final conTotal = liquidadoConTotal(c);
 
     Widget linea(String label, double valor, {bool negativo = false, bool fuerte = false}) => Padding(
           padding: const EdgeInsets.only(bottom: 8),
@@ -516,6 +517,8 @@ class _DespachoView {
 
     return Column(
       children: [
+        // Con el total de la boleta no hay precios por calidad que mostrar.
+        if (!conTotal) ...[
         GlassCard(
           radius: 20,
           padding: const EdgeInsets.all(14),
@@ -568,13 +571,14 @@ class _DespachoView {
           ),
         ),
         const SizedBox(height: 12),
+        ],
         GlassCard(
           highlight: true,
           radius: 22,
           padding: const EdgeInsets.all(16),
           child: Column(
             children: [
-              linea('Venta bruta ($vendido ${envase}s)', bruto),
+              linea(conTotal ? 'Venta bruta' : 'Venta bruta ($vendido ${envase}s)', bruto),
               if (d.isEmpty && (c.descuentosLogistica ?? 0) > 0) linea('Deducciones', c.descuentosLogistica!, negativo: true),
               if ((d['comision'] ?? 0) > 0)
                 linea('Comisión${(d['comision_pct'] ?? 0) > 0 ? ' (${_num(d['comision_pct']!)}%)' : ''}', d['comision']!, negativo: true),
