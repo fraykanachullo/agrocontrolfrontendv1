@@ -52,6 +52,8 @@ dependencies:
   # No se usa directo: lo trae pdf. Se acota porque image 4.11 necesita un
   # archive más nuevo que el que permite el SDK y no compila.
   image: ">=4.5.0 <4.11.0"
+  archive: ^4.0.7
+  file_picker: ^10.3.3
 
 dev_dependencies:
   flutter_test:

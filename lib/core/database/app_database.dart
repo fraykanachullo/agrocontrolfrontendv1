@@ -8,19 +8,29 @@ import '../../features/auth/data/huella_clave.dart';
 class AppDatabase {
   static Database? _database;
 
+  static const nombreArchivo = 'agrocontrol.db';
+  static const version = 12;
+
   static Future<Database> get database async {
     if (_database != null) return _database!;
     _database = await _initDB();
     return _database!;
   }
 
+  /// Cierra la base (para restaurar un respaldo); se reabre sola al volver a usarla.
+  static Future<void> close() async {
+    final db = _database;
+    _database = null;
+    await db?.close();
+  }
+
   static Future<Database> _initDB() async {
     final dbPath = await getDatabasesPath();
-    final path = join(dbPath, 'agrocontrol.db');
+    final path = join(dbPath, nombreArchivo);
 
     return await openDatabase(
       path,
-      version: 12,
+      version: version,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -667,11 +677,5 @@ class AppDatabase {
           .toIso8601String(),
       'created_at': now,
     });
-  }
-
-  static Future<void> close() async {
-    final db = await database;
-    await db.close();
-    _database = null;
   }
 }

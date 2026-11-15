@@ -1,11 +1,17 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:share_plus/share_plus.dart';
+import '../../../../core/backup/respaldo_service.dart';
 import '../../../../core/providers/app_providers.dart';
 import '../../../../core/providers/despacho_aviso_provider.dart';
 import '../../../../core/providers/topo_provider.dart';
+import '../../../../core/providers/ultimo_respaldo_provider.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/theme/theme_mode_provider.dart';
@@ -37,6 +43,69 @@ class PerfilScreen extends ConsumerStatefulWidget {
 
 class _PerfilScreenState extends ConsumerState<PerfilScreen> {
   bool _syncing = false;
+  bool _respaldando = false;
+
+  Future<void> _guardarRespaldo() async {
+    if (_respaldando) return;
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _respaldando = true);
+    try {
+      final zip = await RespaldoService().exportar();
+      final r = await SharePlus.instance.share(ShareParams(
+        files: [XFile(zip.path, mimeType: 'application/zip')],
+        subject: 'Respaldo de AgroControl',
+        text: 'Respaldo de AgroControl. Guárdalo en tu Drive, correo o WhatsApp.',
+      ));
+      if (r.status == ShareResultStatus.success) {
+        await ref.read(ultimoRespaldoProvider.notifier).marcar(DateTime.now());
+        messenger.showSnackBar(const SnackBar(content: Text('Respaldo guardado')));
+      }
+    } catch (_) {
+      messenger.showSnackBar(const SnackBar(content: Text('No se pudo armar el respaldo')));
+    } finally {
+      if (mounted) setState(() => _respaldando = false);
+    }
+  }
+
+  Future<void> _restaurarRespaldo() async {
+    if (_respaldando) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final elegido = await FilePicker.platform.pickFiles(type: FileType.any);
+    final ruta = elegido?.files.single.path;
+    if (ruta == null || !mounted) return;
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Restaurar respaldo'),
+        content: const Text(
+          'Todo lo que hay ahora en este teléfono se reemplaza por lo del respaldo: '
+          'campañas, cuaderno, despachos y fotos. ¿Continuar?',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Restaurar')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    setState(() => _respaldando = true);
+    try {
+      await RespaldoService().restaurar(File(ruta));
+      await ref.read(campanaListProvider.notifier).loadCampanas();
+      ref.invalidate(terrenosProvider);
+      await ref.read(syncManagerProvider).refreshPendingCount();
+      messenger.showSnackBar(const SnackBar(content: Text('Respaldo restaurado')));
+      if (mounted) context.go('/campanas');
+    } on RespaldoInvalido catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.mensaje)));
+    } catch (_) {
+      messenger.showSnackBar(const SnackBar(content: Text('No se pudo restaurar el respaldo')));
+    } finally {
+      if (mounted) setState(() => _respaldando = false);
+    }
+  }
 
   Future<void> _sincronizar() async {
     if (_syncing) return;
@@ -139,6 +208,7 @@ class _PerfilScreenState extends ConsumerState<PerfilScreen> {
     final ultimaSync = ref.watch(ultimaSyncProvider);
     final version = ref.watch(_versionProvider).value;
     final modo = ref.watch(themeModeProvider);
+    final ultimoRespaldo = ref.watch(ultimoRespaldoProvider);
 
     return AgroBackground(
       child: Scaffold(
@@ -244,6 +314,28 @@ class _PerfilScreenState extends ConsumerState<PerfilScreen> {
                     ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
                     : Text('Sincronizar', style: text.labelMedium?.copyWith(color: AppColors.accent, fontWeight: FontWeight.w700)),
                 onTap: _sincronizar,
+              ),
+            ]),
+            const SizedBox(height: 22),
+            const SectionHeader(title: 'Respaldo'),
+            _Group(children: [
+              _Tile(
+                icon: Icons.save_alt_rounded,
+                iconColor: ultimoRespaldo == null ? AppColors.warning : null,
+                title: 'Guardar respaldo',
+                subtitle: ultimoRespaldo == null
+                    ? 'Aún no guardas ninguno: tus datos solo están en este teléfono'
+                    : 'Último ${haceCuanto(ultimoRespaldo)} · campañas, cuaderno y fotos',
+                trailing: _respaldando
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                    : null,
+                onTap: _guardarRespaldo,
+              ),
+              _Tile(
+                icon: Icons.settings_backup_restore_rounded,
+                title: 'Restaurar respaldo',
+                subtitle: 'Recupera tus datos en un teléfono nuevo',
+                onTap: _restaurarRespaldo,
               ),
             ]),
             const SizedBox(height: 22),
